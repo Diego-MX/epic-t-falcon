@@ -2,6 +2,10 @@ from pyspark.sql import functions as F, types as T
 from hdbcli import dbapi
 
 
+# Esto se debe de leer de una tabla. Ejemplo:
+# from spark_utils import table_2_struct
+# 
+# schema = table_2_struct(pd.from_csv(the_file))  
 schema = T.StructType([
     T.StructField("NUMCLIENTE", T.StringType(), False), 
     T.StructField("NUMCREDITO", T.StringType(), False), 
