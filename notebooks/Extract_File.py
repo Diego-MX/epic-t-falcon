@@ -1,8 +1,4 @@
 # Databricks notebook source
-
-
-# COMMAND ----------
-
 # MAGIC %md
 # MAGIC # Introducción  
 # MAGIC Identificamos tres capas de transformación:  `ATPTX`, `DAMBS`, `DAMNA`.  
@@ -12,10 +8,6 @@
 # MAGIC - Identifica el tipo de capa al que corresponde el archivo. 
 # MAGIC - Manda como variables el tipo de capa `FileName` y archivo correpsondiente `ZipFileName`. 
 # MAGIC - Ejecuta las celdas de este _notebook_ como flujo del código, es decir transformarlo en tabla Δ. 
-
-# COMMAND ----------
-
-dbutils.fs.mounts()
 
 # COMMAND ----------
 
