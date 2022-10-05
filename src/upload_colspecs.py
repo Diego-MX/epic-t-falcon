@@ -30,6 +30,7 @@ mod_cols = {
     'fmt_len'   : lambda df: df['Format'].str.extract(fmt_rgx)[1], 
     'aux_date'  : lambda df: df['Technical Mapping'].str.find('YYYYMMDD') > -1, 
     'aux_sign'  : lambda df: df['Technical Mapping'].str.find('+ or -'  ) > -1, 
+    'aux_fill'  : lambda df: df['Field Name'].str.match(f'.*filler', case=False), 
     'name_1'    : lambda df: df['Technical Mapping']
             .str.strip().str.split(' ').str[0].str.lower().replace('-', '_'), 
     'name'      : lambda df: np.where(~df['aux_sign'], df['name_1'], 
@@ -38,9 +39,7 @@ mod_cols = {
             | (np.arange(len(df)) == len(df) - 1), 
     'chk_sign'  :(lambda df: np.where(df['aux_sign'], 
             df['Field Name'].str.replace(' - sign', '', regex=False) == df['Field Name'].str.strip().shift(-1), True)), 
-    'chk_name'  :(lambda df:~df['name'].duplicated() 
-            | df['aux_sign']
-            | df['Field Name'].str.match(r'.*filler', case=False))
+    'chk_name'  :(lambda df:~df['name'].duplicated() | df['aux_sign']| df['aux_fill'])
 }
 
 a_sht, a_tbl, suffix = 'DAMNA001', 'damna', 'detail'
