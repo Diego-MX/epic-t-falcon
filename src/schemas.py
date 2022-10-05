@@ -4,14 +4,15 @@ from pandas.core.frame import DataFrame
 from pyspark.sql import functions as F, types as T
 
 
-def colsdf_2_pyspark(a_df: DataFrame, base_col='value'): 
+
+def colsdf_2_pyspark(pre_df: DataFrame, base_col='value'): 
     # ['From', 'Length', 'Field Name', 'Format', 'Description',
     #    'Technical Mapping', 'name', 'fmt_type', 'fmt_len', 'aux_date',
     #    'aux_sign', 'chk_len', 'chk_sign', 'chk_name'] 
 
     int_cols = ['From', 'Length', 'fmt_len']
 
-    b_df = (a_df
+    b_df = (pre_df
         .astype({an_int: int for an_int in int_cols})
         .assign(
             sgn_name = lambda df: df['name'].shift(1), 
@@ -25,7 +26,7 @@ def colsdf_2_pyspark(a_df: DataFrame, base_col='value'):
 
     pre_slct   = [ 
         F.substring(F.col(base_col), a_row['From'], a_row['Length']).alias(name)
-        for name, a_row in b_df.iterrows()]
+        for name, a_row in b_df.iterrows() if a_row['c_type'] > 0]
     
     cols_sgns  = [(F.col(name)*F.concat(F.col(f'{name}_sgn'), F.lit('1'))
                     .cast(T.IntegerType())).alias(name)
@@ -49,3 +50,11 @@ def colsdf_2_pyspark(a_df: DataFrame, base_col='value'):
         '2-sorted'  : cols_sort}
     return to_select
 
+
+
+def len_cols(cols_df: DataFrame) -> int: 
+    last_fill = cols_df['aux_fill'].iloc[-1]
+    up_to = -1 if last_fill else len(cols_df)
+    the_len = cols_df['Length'][:up_to].sum()
+    return int(the_len)
+    
