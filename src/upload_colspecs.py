@@ -51,11 +51,13 @@ table_types = ['detail', 'header', 'trailer']
 a_sht, a_tbl, suffix = 'DAMNA001', 'damna', 'detail'
 
 the_cols = ['name', 'From', 'Length', 'Field Name', 'Technical Mapping', 
-        'fmt_type', 'fmt_len', 'aux_date', 'aux_sign']
+        'fmt_type', 'fmt_len', 'aux_date', 'aux_sign', 'aux_fill']
 
 for a_sht, a_tbl in sheets_tables: 
     for suffix in table_types: 
         pre_table = read_excel_table(specs_file, a_sht, f"{a_tbl}_{suffix}")
+        # PRINT check columns.
+
         table_columns = fiserv_data(pre_table).loc[:, the_cols]
         table_columns.to_feather (f"refs/catalogs/{a_tbl}_{suffix}.feather") 
     
