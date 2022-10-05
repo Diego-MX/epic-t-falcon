@@ -78,6 +78,7 @@ def dbks_path(a_path: Path):
 # COMMAND ----------
 
 #%% About the files in question: 
+
 reg_labels = {
     'UAT_CLIENTES_DAMNA001': 'DAMNA', 
     'UAT_TRXS_ZATPTX01'    : 'ATPTX',
@@ -86,7 +87,8 @@ reg_labels = {
     'UAT_CUENTAS_DAMBSC01' : 'DAMBSC'}
 
 file_regex = r"([A-Z_0-9]*?)_([0-9\-]*)\.ZIP"
-zip_regex  = r"([A-Z0-9]*?)_([0-9\-]*)"
+zip_regex = r"[A-Z]*_[A-Z]*_([A-Z0-9]*_[0-9\-]*)\.ZIP"
+
 
 the_filenames = [filish.name for filish in dbutils.fs.ls(read_from)]
 
@@ -99,7 +101,7 @@ if set(reg_labels) != observed_labels:
     raise "File Labels are not as expected."
 
 
-#%% About Local temporary download. 
+#%% Local temporary download. 
 to_download = "/dbfs/FileStore/transformation-layer/tmp_download.zip"
 to_unzip    = "/dbfs/FileStore/transformation-layer/tmp_unzipped"
 # Hint for files: EN DBUTILS no usar /DBFS.  En [Python] with(file_path) sí usar DBFS. 
@@ -111,7 +113,6 @@ get_secret = lambda a_key: dbutils.secrets.get(dbks_scope, a_key)
 the_credential = ClientSecretCredential(**{k: get_secret(v) for (k, v) in cred_keys.items()})
 
 blob_container = ContainerClient(blob_url, 'bronze', the_credential) 
-
 
 
 # COMMAND ----------
@@ -126,32 +127,37 @@ blob_container = ContainerClient(blob_url, 'bronze', the_credential)
 
 previous_blobs = [re.sub(f"{pre_write}/", '', a_blob.name) 
     for a_blob in blob_container.list_blobs(name_starts_with=pre_write)
-    if a_blob.name.endswith('.txt')]
+    if  a_blob.name.endswith('.txt')]
 
-mid_write_names = {
-    label[0]: f"{reg_labels[label[1]]}/{re.sub('-', '/', label[2])}.txt" 
-        for label in files_and_labels 
-        if label[1] in reg_labels}
+mid_write_names = {label[0]: f"{reg_labels[label[1]]}/{re.sub('-', '/', label[2])}.txt" 
+    for label in files_and_labels if label[1] in reg_labels}
 
-only_process_these = {zip: txt 
-    for zip, txt in mid_write_names.items()
+only_process_these = {zip_name: txt 
+    for zip_name, txt in mid_write_names.items()
     if  txt not in previous_blobs}
 
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC La siguiente función hace todo.  
+
+# COMMAND ----------
+
 # Uses... 
-read_path       = read_path
-pre_write       = pre_write
-mid_write_names = mid_write_names
-to_download     = to_download
-to_unzip        = to_unzip
+# READ_PATH, PRE_WRITE, MID_WRITE_NAMES, TO_DOWNLOAD, TO_UNZIP
 
 def download_extract_upload(a_file, verbose=1): 
+    a_match = re.match(zip_regex, a_file)
+    if not a_match: 
+        print("\tArchivo no admite REGEX: \n\t{a_file}".expandtabs(4))
+        raise "File Name no admite patrón Regex"
+    b_file = a_match.group(1)    
+    
+    blob_in = f"/{read_path}/{a_file}"
+    write_to = mid_write_names[a_file]
+    
     try: 
-        blob_in = f"/{read_path}/{a_file}"
-        write_to = mid_write_names[a_file]
-        
         the_blob = blob_container.get_blob_client(blob_in)
         
         with open(f"{to_download}", 'wb') as _f: 
@@ -160,22 +166,16 @@ def download_extract_upload(a_file, verbose=1):
         with ZipFile(f"{to_download}", 'r') as _unz:
             _unz.extractall(to_unzip)
     
-        at_unzip = listdir(to_unzip)
-        
-        if (len(at_unzip) != 1): 
-            print(f"\t¡¡¡ Múltiples o ningún archivo descomprimido: \n\t{a_file}".expandtabs(4))    
+        if b_file not in listdir(to_unzip): 
+            print(f"\tNo se encuentra archivo esperado: \n\t{b_file}".expandtabs(4))    
             raise "Uncompress Error"
         
-        if not re.match(zip_regex, at_unzip[0]): 
-            print("\tArchivo no admite REGEX: \n\t{a_file}".expandtabs(4))
-            raise "File Name unfit for Regex"
-            
         if verbose >= 1: 
             print(f"\tSubiendo archivo a blob: \n\t{pre_write}/{write_to}".expandtabs(4))
         
         the_blob = blob_container.get_blob_client(f"{pre_write}/{write_to}")
         
-        with open(f"{to_unzip}/{at_unzip[0]}", 'rb') as _f: 
+        with open(f"{to_unzip}/{b_file}", 'rb') as _f: 
             the_blob.upload_blob(_f)
     
     except Exception as ex: 
@@ -188,6 +188,11 @@ def download_extract_upload(a_file, verbose=1):
     
     return (a_file, 1)
     
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC El siguiente _loop_ ejecuta la función para todos los archivos.  
 
 # COMMAND ----------
 

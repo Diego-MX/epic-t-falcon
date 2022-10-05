@@ -56,7 +56,8 @@ local_tempfile = "/tmp/blob_report.csv"
 
 # COMMAND ----------
 
-via_pandas = False: 
+via_pandas = False 
+
 if via_pandas: 
     blob_creds = ClientSecretCredential(**{k: get_secret(v) for (k, v) in cred_keys.items()})
     blob_service = BlobServiceClient(blob_url, blob_creds)
@@ -161,9 +162,9 @@ sispagos = (spark.read.table('nayru_accounts.slv_ops_cms_reports')
         F.sum('NumberUnblockedCards').alias('Numero_de_Cuentas'), 
         F.sum('CurrentBalance'      ).alias('_suma_balances'))
     .withColumn('Saldo_Promedio', F.round(F.col('_suma_balances')/F.col('Numero_de_Cuentas'), 2))
-    .withColumn('Trimestre', F.trunc(F.col('Trimestre'), 'month'))
-    .withColumn('Seccion',   F.lit('2.1'))
-    .withColumn('Moneda',    F.lit('MXN'))
+    .withColumn('Trimestre',   F.trunc(F.col('Trimestre'), 'month'))
+    .withColumn('Seccion',     F.lit('2.1'))
+    .withColumn('Moneda',      F.lit('MXN'))
     .withColumn('Tipo_Cuenta', F.lit('1723'))
     .withColumn('Tipo_Persona', F.lit(''))
     .select(*select_cols))

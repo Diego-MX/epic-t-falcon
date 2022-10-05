@@ -16,15 +16,16 @@ def colsdf_2_pyspark(pre_df: DataFrame, base_col='value'):
         .astype({an_int: int for an_int in int_cols})
         .assign(
             sgn_name = lambda df: df['name'].shift(1), 
-            c_type = lambda df: np.where(df['aux_sign'], 1, 
-                              np.where(df['aux_sign'].shift(1).isin([True]), 2, 
-                            np.where(df['aux_date'], 3, 
-                          np.where(df['fmt_type'] == 'X', 4, 
-                        np.where(df['fmt_type'] == '9', 5, 
-                      -1))))))
+            c_type = lambda df: np.where(df['aux_fill'], 0, 
+                            np.where(df['aux_sign'], 1, 
+                          np.where(df['aux_sign'].shift(1).isin([True]), 2, 
+                        np.where(df['aux_date'], 3, 
+                      np.where(df['fmt_type'] == 'X', 4, 
+                    np.where(df['fmt_type'] == '9', 5, 
+                  -1)))))))
         .set_index('name'))
-
-    pre_slct   = [ 
+    
+    len_slct = [
         F.substring(F.col(base_col), a_row['From'], a_row['Length']).alias(name)
         for name, a_row in b_df.iterrows() if a_row['c_type'] > 0]
     
@@ -45,9 +46,9 @@ def colsdf_2_pyspark(pre_df: DataFrame, base_col='value'):
         for name, a_row in b_df.iterrows() if a_row['c_type'] in [2, 3, 4, 5]]
     
     to_select = {
-        '0-prestage': pre_slct, 
-        '1-typecols': cols_str + cols_ints + cols_dates + cols_sgns, 
-        '2-sorted'  : cols_sort}
+        '1-substring': len_slct, 
+        '2-typecols' : cols_str + cols_ints + cols_dates + cols_sgns, 
+        '3-sorted'   : cols_sort}
     return to_select
 
 
