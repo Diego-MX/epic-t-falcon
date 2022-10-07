@@ -12,25 +12,27 @@ def print_df(a_df, width=180):
 
 
 def fiserv_data(a_df): 
+    # Field Name, Format, Technical Mapping
     mod_cols = {
         'Field Name': lambda df: df['Field Name'].str.strip(), 
         'Format'    : lambda df: df['Format'].astype(str), 
         'fmt_type'  : lambda df: df['Format'].str.extract(r'^([X9])')[0], 
         'fmt_len'   : lambda df: df['Format'].str.extract(r'.*\((\d+)\)')[0].fillna(1), 
+        'aux_fill'  : lambda df: df['Field Name'].str.match(r'.*filler', case=False), 
         'aux_date'  : lambda df: df['Technical Mapping'].str.find('YYYYMMDD') > -1, 
         'aux_sign'  : lambda df: df['Technical Mapping'].str.find('+ or -'  ) > -1, 
-        'aux_fill'  : lambda df: df['Field Name'].str.match(r'.*filler', case=False), 
-        'name_1'    :(lambda df: df['Technical Mapping']
-                .str.strip().str.split(' ').str[0].str.lower()
-                .str.replace(r'\((\d+)\)', r'_\1', regex=True)
-                .str.replace('-', '_')), 
-        'name'      :(lambda df: np.where(~df['aux_sign'], df['name_1'], 
-                df['name_1'].shift(-1) + '_sgn')),
-        'chk_len'   :(lambda df: (df['From'] + df['Length'] == df['From'].shift(-1)) 
-                | (np.arange(len(df)) == len(df)-1)), 
-        'chk_sign'  :(lambda df: np.where(df['aux_sign'], 
-                df['Field Name'].str.startswith(df['Field Name'].shift(1)), True)), 
-        'chk_name'  :(lambda df:~df['name'].duplicated() | df['aux_sign'] | df['aux_fill'])}
+        'name_1'    : lambda df: df['Technical Mapping']
+            .str.strip().str.split(' ').str[0].str.lower()
+            .str.replace(r'\((\d+)\)', r'_\1', regex=True)
+            .str.replace('-', '_'), 
+        'name'      : lambda df: np.where(~df['aux_sign'], df['name_1'], 
+            df['name_1'].shift(-1) + '_sgn'),
+        'chk_sign'  : lambda df: np.where(df['aux_sign'], 
+            df['Field Name'].str.startswith(df['Field Name'].shift(1)), True), 
+        'chk_len'   : lambda df: (df['From'] + df['Length'] == df['From'].shift(-1)) 
+            | (np.arange(len(df)) == len(df)-1), 
+        'chk_name'  : lambda df: ~df['name'].duplicated() 
+            | df['aux_sign'] | df['aux_fill']}
 
     b_df = (a_df
         .rename(lambda a_str: a_str.strip(), axis=1)
