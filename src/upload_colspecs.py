@@ -21,7 +21,9 @@ def fiserv_data(a_df):
         'aux_sign'  : lambda df: df['Technical Mapping'].str.find('+ or -'  ) > -1, 
         'aux_fill'  : lambda df: df['Field Name'].str.match(r'.*filler', case=False), 
         'name_1'    :(lambda df: df['Technical Mapping']
-                .str.strip().str.split(' ').str[0].str.lower().str.replace('-', '_')), 
+                .str.strip().str.split(' ').str[0].str.lower()
+                .str.replace(r'\((\d+)\)', r'_\1', regex=True)
+                .str.replace('-', '_')), 
         'name'      :(lambda df: np.where(~df['aux_sign'], df['name_1'], 
                 df['name_1'].shift(-1) + '_sgn')),
         'chk_len'   :(lambda df: (df['From'] + df['Length'] == df['From'].shift(-1)) 
