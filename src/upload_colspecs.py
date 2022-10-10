@@ -28,7 +28,7 @@ def fiserv_data(a_df):
         'name'      : lambda df: np.where(~df['aux_sign'], df['name_1'], 
             df['name_1'].shift(-1) + '_sgn'),
         'chk_sign'  : lambda df: np.where(df['aux_sign'], 
-            df['Field Name'].str.startswith(df['Field Name'].shift(1)), True), 
+            df['Field Name'].str.startswith(df['Field Name'].shift(-1)), True), 
         'chk_len'   : lambda df: (df['From'] + df['Length'] == df['From'].shift(-1)) 
             | (np.arange(len(df)) == len(df)-1), 
         'chk_name'  : lambda df: ~df['name'].duplicated() 
