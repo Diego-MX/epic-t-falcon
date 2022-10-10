@@ -27,8 +27,8 @@ def fiserv_data(a_df):
             .str.replace('-', '_'), 
         'name'      : lambda df: np.where(~df['aux_sign'], df['name_1'], 
             df['name_1'].shift(-1) + '_sgn'),
-        'chk_sign'  : lambda df: np.where(df['aux_sign'], 
-            df['Field Name'].str.startswith(df['Field Name'].shift(-1)), True), 
+        'chk_sign'  : lambda df: np.where(~df['aux_sign'], True, 
+            df['Field Name'].str.replace(' - sign', '') == df['Field Name'].shift(-1)), 
         'chk_len'   : lambda df: (df['From'] + df['Length'] == df['From'].shift(-1)) 
             | (np.arange(len(df)) == len(df)-1), 
         'chk_name'  : lambda df: ~df['name'].duplicated() 
@@ -54,7 +54,7 @@ table_types = ['detail', 'header', 'trailer']
 the_cols = ['name', 'From', 'Length', 'Format', 'Field Name', 'Technical Mapping', 
         'fmt_type', 'fmt_len', 'aux_date', 'aux_sign', 'aux_fill']
 
-a_sht, a_tbl, suffix = 'DATPTX01', 'atpt', 'detail'
+a_sht, a_tbl, suffix = 'DAMBS101', 'dambs', 'detail'
 
 for a_sht, a_tbl in sheets_tables: 
     for suffix in table_types: 
