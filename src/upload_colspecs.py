@@ -45,7 +45,7 @@ def fiserv_data(a_df):
 specs_file = "refs/catalogs/Data Extracts.xlsx.lnk"
 
 sheets_tables = [('DATPTX01', 'atpt'),  # , ('DAMNAC01', 'damnac') 
-    ('DAMBS201', 'dambs'), ('DAMBSC01', 'dambsc'),
+    ('DAMBS101', 'dambs'), ('DAMBS201', 'dambs2'), ('DAMBSC01', 'dambsc'),
     ('DAMNA001', 'damna')] 
 table_types = ['detail', 'header', 'trailer']
 
@@ -58,9 +58,12 @@ a_sht, a_tbl, suffix = 'DATPTX01', 'atpt', 'detail'
 
 for a_sht, a_tbl in sheets_tables: 
     for suffix in table_types: 
-        pre_table = read_excel_table(specs_file, a_sht, f"{a_tbl}_{suffix}")
-        # PRINT check columns.
+        print(f"### Saving table: {a_sht}_{suffix}:")
 
-        table_columns = fiserv_data(pre_table).loc[:, the_cols]
+        pre_table = read_excel_table(specs_file, a_sht, f"{a_tbl}_{suffix}")
+        mid_table = fiserv_data(pre_table)
+        chk_sums  = len(mid_table) - mid_table.loc[:, mid_table.columns.str.startswith('chk')].sum()
+        print(str(chk_sums))
+        table_columns = mid_table.loc[:, the_cols]
         table_columns.to_feather(f"refs/catalogs/{a_tbl}_{suffix}.feather") 
     
