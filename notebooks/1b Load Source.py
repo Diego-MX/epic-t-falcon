@@ -31,7 +31,7 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Preparación
+# MAGIC # Ejecución
 # MAGIC La preparación tiene tres partes.  
 # MAGIC `i)`&ensp;&ensp; Librerías y utilidades.  
 # MAGIC `ii)`&ensp; Variables del proyecto de alto nivel, que se intercambian con el equipo de Infraestructura.  
@@ -39,19 +39,11 @@
 
 # COMMAND ----------
 
-from importlib import reload
-import src.schemas
-from src import schemas
-reload(src.schemas)
-reload(schemas)
-from src.schemas import colsdf_2_pyspark
-
-
-# COMMAND ----------
-
 from datetime import datetime as dt, date, timedelta as delta
-from os import listdir
+import glob
+from itertools import product
 import numpy as np
+from os import listdir
 import pandas as pd
 from pandas.core.frame import DataFrame
 import re
@@ -61,7 +53,11 @@ from azure.storage.blob import BlobServiceClient
 from pyspark.sql import functions as F, types as T
 from pyspark.sql.window import Window as W
 
-from src.schemas import colsdf_2_pyspark
+import src.schemas as src_spk
+from config import ENV, RESOURCE_SETUP, DATALAKE_PATHS as paths
+
+resources = RESOURCE_SETUP[ENV]
+
 
 def pd_print(a_df: pd.DataFrame, width=180): 
     options = ['display.max_rows', None, 
@@ -75,146 +71,349 @@ def pd_print(a_df: pd.DataFrame, width=180):
 
 # Variables de alto nivel.  (Revisar archivo CONFIG.PY)
 
-dbks_scope = 'eh-core-banking'
+read_path  = paths['bronze']
 
-blob_url = 'https://stlakehyliaqas.blob.core.windows.net/'
+read_from = f"{paths['abfss'].format(stage='bronze', storage=resources['storage'])}/{paths['bronze']}"  
+write_to  = f"{paths['abfss'].format(stage='silver', storage=resources['storage'])}/{paths['silver']}"  
 
-cred_keys = {
-    'tenant_id'        : 'aad-tenant-id', 
-    'subscription_id'  : 'sp-core-events-suscription', 
-    'client_id'        : 'sp-core-events-client', 
-    'client_secret'    : 'sp-core-events-secret'}
-
-read_path  = 'ops/regulatory/card-management/transformation-layer/unzipped-ready'
-write_path = 'ops/card-management/datasets'
-
-storage_ext = 'stlakehyliaqas.dfs.core.windows.net'
-
-read_from = f"abfss://bronze@{storage_ext}/{read_path}"
-write_to  = f"abfss://silver@{storage_ext}/{write_path}"
 
 
 
 # COMMAND ----------
 
 # MAGIC %md 
-# MAGIC ## Preparación de código
-
-# COMMAND ----------
-
-the_keys = {
-    'DAMNA' : 'damna', 
-    'ATPTX' : 'atpt', 
-    'DAMBS1': 'dambs', 
-    'DAMBS2': 'dambs', 
-    'DAMBSC': 'dambsc'}
-
-# COMMAND ----------
-
-# MAGIC %md 
-# MAGIC ## ATPT transacciones
+# MAGIC ## Preparación de código  
 # MAGIC 
-# MAGIC Depende del `atpt_detail.feather` y otras rutas de archivo explícitas. 
+# MAGIC Definimos llaves claves para leer y guardar archivos.  
+# MAGIC 
+# MAGIC La función de los _streams_ considera los siguientes elementos:  
+# MAGIC     - Se toman los fólders del _storage container_ en donde se depositaron los archivos descomprimidos.  
+# MAGIC     - También utilizamos los archivos de configuración que se guardan en la carpeta local del repositorio.  
+# MAGIC     - Se hace el match y se generan los streams correspondientes.  
+# MAGIC     
 
 # COMMAND ----------
+
+stream_keys = {
+    'DAMNA' : ('damna',  'damna' , 'din_clients.slv_ops_cms_damna_stm'), 
+    'ATPTX' : ('atpt',   'atpt'  , 'farore_transactions.slv_ops_cms_atptx_stm'), 
+    'DAMBS1': ('dambs',  'dambs' , 'nayru_accounts.slv_ops_cms_dambs_stm'), 
+    'DAMBS2': ('dambs2', 'dambs2', 'nayru_accounts.slv_ops_cms_dambs2_stm'), 
+    'DAMBSC': ('dambsc', 'dambsc', 'nayru_accounts.slv_ops_cms_dambsc_stm')}
+
+
+# COMMAND ----------
+
+    
+# Este query no cacha información de headers. 
+def stream_from_key(a_key, get_schema=False): 
+    b_key = stream_keys[a_key][0]
+
+    the_dir   = f"{read_from}/{a_key}" 
+    dtls_file = f"../refs/catalogs/{b_key}_detail.feather"
+    hdrs_file = f"../refs/catalogs/{b_key}_header.feather"
+    trlr_file = f"../refs/catalogs/{b_key}_trailer.feather"
+
+    dtls_df = pd.read_feather(dtls_file)
+    hdrs_df = pd.read_feather(hdrs_file)
+    trlr_df = pd.read_feather(trlr_file)
+    
+    dtls_df['name'] = dtls_df['name'].str.replace(')', '', regex=False)
+    
+    
+    up_to_len = max(len_cols(hdrs_df), len_cols(trlr_df))
+    longer_rows = (F.length(F.rtrim(F.col('value'))) > up_to_len)
+
+    prep_dtls     = src_spk.colsdf_prepare(dtls_df)
+    the_selectors = src_spk.colsdf_2_select(prep_dtls, 'value')  # 1-substring, 2-typecols, 3-sorted
+    
+    the_schema = src_spk.colsdf_2_schema(prep_dtls)
+    
+    read_options = {
+        'cloudFiles.format'                : 'text',
+        'cloudFiles.useIncrementalListing' : 'true', 
+        'recursiveFileLookup'              : 'true'}
+
+    pre_stream = (spark.readStream
+        .format('cloudFiles')
+        # .schema(the_schema)  doesnt work on value. 
+        .options(**read_options)
+        .load(the_dir)
+        .withColumn('input_file', F.input_file_name()))
+            
+    date_col = F.to_date(
+        F.regexp_extract(F.col('input_file'), '(20[0-9/]+)', 1), 
+        'yyyy/MM/dd')
+                      
+    a_stream = (pre_stream
+        .withColumn('file_date', date_col)
+        .filter(longer_rows)
+        .select('file_date', *the_selectors['1-substring'])
+        .select('file_date', *the_selectors['2-typecols' ]))
+    
+    if get_schema: 
+        the_stream = (a_stream, the_schema)
+    else: 
+        the_stream = (a_stream)
+    
+    return the_stream
+
 
 def len_cols(cols_df: DataFrame) -> int: 
     last_fill = cols_df['aux_fill'].iloc[-1]
     up_to = -1 if last_fill else len(cols_df)
     the_len = cols_df['Length'][:up_to].sum()
     return int(the_len)
-    
-
-# COMMAND ----------
-
-pd_print(dtls_df)
-
-# COMMAND ----------
-
-with_header = False
-
-the_dir   = f"{read_from}/ATPTX" 
-dtls_file = f"../refs/catalogs/atpt_detail.feather"
-hdrs_file = f"../refs/catalogs/atpt_header.feather"
-trlr_file = f"../refs/catalogs/atpt_trailer.feather"
-
-where_chkpoints = f"{write_to}/atpt/checkpoints"
-where_delta = f"{write_to}/atpt/delta"
-
-dtls_df = pd.read_feather(dtls_file)
-hdrs_df = pd.read_feather(hdrs_file)
-trlr_df = pd.read_feather(trlr_file)
-
-up_to_len = max(len_cols(hdrs_df), len_cols(trlr_df))
-longer_rows = (F.rtrim(F.col('value')) > up_to_len)
-
-the_selectors = colsdf_2_pyspark(cols_df, 'value')  # 1-substring, 2-typecols, 3-sorted
-
-
-read_options = {
-    'cloudFiles.format'                : 'text',
-    'cloudFiles.useIncrementalListing' : 'true', 
-    'recursiveFileLookup'              : 'true'}
-
-write_opts = {
-    'mergeSchema': True, 
-    'checkpointLocation': where_chkpoints}
-
-pre_stream = (spark.readStream
-    .format('cloudFiles')
-    .options(**read_options)
-    .load(the_dir))
-
-the_stream = (pre_stream
-    .filter(longer_rows)              
-    .select(the_selectors['1-substring'])
-    .select(the_selectors['2-typecols' ])
-    .select(the_selectors['3-sorted'])
-    )
-
-# pos_stream = (the_stream.writeStream.format('delta')
-#     .outputMode('append')
-#     .options(**write_opts))
-
-# pos_stream.start(where_delta)
-
-display(the_stream)
-
-# COMMAND ----------
-
-display(the_stream)
-
-
-# COMMAND ----------
-
-if with_header: 
-    atpt_at = ""
-    atpt_table = (pre_atpt
-        .withColumn('is_header',  F.length(F.trim(F.col('value'))) <= int(header_len))
-        .withColumn('ref_header', F.when( F.col('is_header'), F.trim(F.col('value'))).otherwise(None))
-        .withColumn('details',    F.when(~F.col('is_header'), F.col('value')).otherwise(None))
-        .select('is_header', *pre_headers,  *pre_columns)
-        .select('is_header', *atpt_headers, *atpt_str, *atpt_sngs, *atpt_dates, *atpt_ints)
-        .select('is_header', *atpt_headers, *cols_sort))
-else:
-    atpt_table = (pre_atpt
-        .withColumn('is_header', F.length(F.trim(F.col('value'))) <= int(header_len))
-        .filter(~F.col('is_header'))
-        .withColumn('details',   F.when(~F.col('is_header'), F.col('value')).otherwise(None))
-        .select(*pre_columns)
-        .select(*atpt_str, *atpt_sngs, *atpt_dates, *atpt_ints)
-        .select(*cols_sort))
-
-# COMMAND ----------
-
 
 
 # COMMAND ----------
 
 # MAGIC %md 
-# MAGIC ## DAMBS cuentas
+# MAGIC ## Debug Section
+# MAGIC 
+# MAGIC Use this section to copy-paste code lines that are not working as expected:  
+# MAGIC Use `if True: ...` to run the code, or change to `if False: ...` to prevent it from running via Jobs.  
+
+# COMMAND ----------
+
+if False: 
+    a_key = 'DAMBS1'
+    b_key = stream_keys[a_key][0]
+
+    the_dir   = f"{read_from}/{a_key}" 
+    dtls_file = f"../refs/catalogs/{b_key}_detail.feather"
+    hdrs_file = f"../refs/catalogs/{b_key}_header.feather"
+    trlr_file = f"../refs/catalogs/{b_key}_trailer.feather"
+
+    dtls_df = pd.read_feather(dtls_file)
+    hdrs_df = pd.read_feather(hdrs_file)
+    trlr_df = pd.read_feather(trlr_file)
+      
+    up_to_len = max(len_cols(hdrs_df), len_cols(trlr_df))
+    longer_rows = (F.length(F.rtrim(F.col('value'))) > up_to_len)
+
+    prep_dtls = src_spk.colsdf_prepare(dtls_df)  # 1-substring, 2-typecols, 3-sorted
+    the_selectors = src_spk.colsdf_2_select(prep_dtls, 'value')
+    
+    date_col = F.to_date(
+        F.regexp_extract(F.col('input_file'), '(20[0-9/]+)', 1), 
+        'yyyy/MM/dd')
+    
+    read_options = {
+        'cloudFiles.format'                : 'text',
+        'cloudFiles.useIncrementalListing' : 'true', 
+        'recursiveFileLookup'              : 'true'}
+
+#     pre_stream = (spark.readStream
+#         .format('cloudFiles')
+#         .options(**read_options)
+#         .load(the_dir)
+#         .withColumn('input_file', F.input_file_name()))
+            
+                      
+#     the_stream = (pre_stream
+#         .withColumn('file_date', date_col)
+#         .filter(longer_rows)
+#         .select('file_date', *the_selectors['1-substring'])
+#         .select('file_date', *the_selectors['2-typecols' ]))
+    
+
+
+    
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ## CMS streams
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## DAMNA clientes
+# MAGIC ### DAMNA
+
+# COMMAND ----------
+
+damna_key = 'DAMNA'
+
+# damna_stream, damna_schema = stream_from_key(damna_key, get_schema=True)
+damna_stream, damna_schema = stream_from_key(damna_key, get_schema=True)
+
+damna_file = stream_keys[damna_key][1]
+damna_tbl  = stream_keys[damna_key][2]
+
+damna_chkpoints = f"{write_to}/{damna_file}/checkpoints"
+damna_delta     = f"{write_to}/{damna_file}/delta"
+
+damna_writer = (damna_stream.writeStream
+    .format('delta')
+    .outputMode('append')
+    .options(**{
+        'mergeSchema': False, 
+        'checkpointLocation': damna_chkpoints}))
+
+damna_writer.start(damna_delta)
+
+# COMMAND ----------
+
+display(damna_stream)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### ATPTX
+
+# COMMAND ----------
+
+atptx_key = 'ATPTX'
+atptx_file = stream_keys[atptx_key][1]
+atptx_tbl  = stream_keys[atptx_key][2]
+
+atptx_chkpoints = f"{write_to}/{atptx_file}/checkpoints"
+atptx_delta     = f"{write_to}/{atptx_file}/delta"
+
+atptx_stream = stream_from_key(atptx_key)
+
+atptx_writer = (atptx_stream.writeStream.format('delta')
+    .outputMode('append')
+    .options(**{
+        'mergeSchema': False, 
+        'checkpointLocation': atptx_chkpoints}))
+
+atptx_writer.start(atptx_delta)
+
+
+# COMMAND ----------
+
+display(atptx_stream.select('atpt_mt_interchg_ref').distinct())
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### DAMBS1
+
+# COMMAND ----------
+
+dambs1_key = 'DAMBS1'
+dambs1_file = stream_keys[dambs1_key][1]
+dambs1_tbl  = stream_keys[dambs1_key][2]
+
+dambs1_chkpoints = f"{write_to}/{dambs1_file}/checkpoints"
+dambs1_delta     = f"{write_to}/{dambs1_file}/delta"
+
+dambs1_stream = stream_from_key(dambs1_key)
+
+dambs1_writer = (dambs1_stream
+    .writeStream.format('delta')
+    .outputMode('append')
+    .options(**{
+        'mergeSchema': False, 
+        'checkpointLocation': dambs1_chkpoints}))
+
+dambs1_writer.start(dambs1_delta)
+
+# COMMAND ----------
+
+display(dambs1_stream)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### DAMBS2
+
+# COMMAND ----------
+
+dambs2_key = 'DAMBS2'
+dambs2_file = stream_keys[dambs2_key][1]
+dambs2_tbl  = stream_keys[dambs2_key][2]
+
+dambs2_chkpoints = f"{write_to}/{dambs2_file}/checkpoints"
+dambs2_delta     = f"{write_to}/{dambs2_file}/delta"
+
+dambs2_stream, dambs2_schema = stream_from_key(dambs2_key, get_schema=True)
+
+dambs2_writer = (dambs2_stream.writeStream.format('delta')
+    .outputMode('append')
+    .options(**{
+        'mergeSchema': False, 
+        'checkpointLocation': dambs2_chkpoints}))
+
+dambs2_writer.start(dambs2_delta)
+
+
+
+# COMMAND ----------
+
+display(dambs2_stream)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### DAMBSC
+
+# COMMAND ----------
+
+dambsc_key = 'DAMBSC'
+dambsc_file = stream_keys[dambsc_key][1]
+dambsc_tbl  = stream_keys[dambsc_key][2]
+
+dambsc_chkpoints = f"{write_to}/{dambsc_file}/checkpoints"
+dambsc_delta     = f"{write_to}/{dambsc_file}/delta"
+
+dambsc_stream = stream_from_key(dambsc_key)
+
+dambsc_writer = (dambsc_stream.writeStream.format('delta')
+    .outputMode('append')
+    .options(**{
+        'mergeSchema': False, 
+        'checkpointLocation': dambsc_chkpoints}))
+
+dambsc_writer.start(dambsc_delta)
+
+# COMMAND ----------
+
+display(dambsc_stream)
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC # Reiniciar y limpieza
+
+# COMMAND ----------
+
+stream_keys
+
+# COMMAND ----------
+
+first_time = True
+if first_time: 
+#     pass
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {damna_tbl } USING DELTA LOCATION '{damna_delta }'")
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {atptx_tbl } USING DELTA LOCATION '{atptx_delta }'")
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {dambs1_tbl} USING DELTA LOCATION '{dambs1_delta}'")
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {dambs2_tbl} USING DELTA LOCATION '{dambs2_delta}'")
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {dambsc_tbl} USING DELTA LOCATION '{dambsc_delta}'")
+
+# COMMAND ----------
+
+erase_table  = True
+erase_source = True
+if erase_table:
+    pass
+#     spark.sql("DROP TABLE IF EXISTS din_clients.slv_ops_cms_damna_stm")
+#     spark.sql("DROP TABLE IF EXISTS farore_transactions.slv_ops_cms_atptx_stm")
+#     spark.sql("DROP TABLE IF EXISTS nayru_accounts.slv_ops_cms_dambs_stm")
+#     spark.sql("DROP TABLE IF EXISTS nayru_accounts.slv_ops_cms_dambs2_stm")
+#     spark.sql("DROP TABLE IF EXISTS nayru_accounts.slv_ops_cms_dambsc_stm")
+    
+    
+if erase_source: 
+    pass
+#     dbutils.fs.rm(f"{write_to}/damna", True)
+#     dbutils.fs.rm(f"{write_to}/atpt", True)
+#     dbutils.fs.rm(f"{write_to}/dambs", True)
+#     dbutils.fs.rm(f"{write_to}/dambs2", True)
+#     dbutils.fs.rm(f"{write_to}/dambsc", True)
+
+# COMMAND ----------
+
+

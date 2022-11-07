@@ -18,6 +18,8 @@
 from datetime import datetime as dt, date, timedelta as delta 
 import pandas as pd
 from pyspark.sql import functions as F, types as T
+import re
+
 from azure.identity import ClientSecretCredential
 from azure.storage.blob import BlobServiceClient, ContainerClient
 
@@ -28,7 +30,6 @@ write_to = "abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/regulatory/tr
 
 # For Blob connection purposes
 dbks_scope = 'eh-core-banking'
-blob_url = 'https://stlakehyliaqas.blob.core.windows.net/'
 cred_keys = {
     'tenant_id'        : 'aad-tenant-id', 
     'subscription_id'  : 'sp-core-events-suscription', 
@@ -41,9 +42,9 @@ get_secret = lambda a_key: dbutils.secrets.get(dbks_scope, a_key)
 local_tempfile = "/tmp/blob_report.csv"
 
 
-read_path = 'ops/card-management/datasets'
-blob_url = 'https://stlakehyliaqas.blob.core.windows.net/'
-storage_ext = 'stlakehyliaqas.dfs.core.windows.net
+read_path = "ops/card-management/datasets"
+blob_url = "https://stlakehyliaqas.blob.core.windows.net/"
+storage_ext = "stlakehyliaqas.dfs.core.windows.net"
 read_from  = f"abfss://silver@{storage_ext}/{read_path}"
 
 
@@ -70,8 +71,23 @@ if via_pandas:
     blob_service = BlobServiceClient(blob_url, blob_creds)
     at_container = blob_service.get_container_client('silver') 
     
+def file_exists(a_path): 
+    if a_path[:5] == "/dbfs":
+        return os.path.exists(path)
+    else:
+        try:
+            dbutils.fs.ls(path)
+            return True
+        except: 
+            return False
+#         except Exception as e:
+#             if 'java.io.FileNotFoundException' in str(e):
+#                 return False
+#             else:
+#                 raise "Something Else Error"
+        
     
-def write_to_datalake(spk_df, a_path, method, container=None): 
+def write_to_datalake(spk_df, a_path, method='with_delta', container=None): 
     if method == 'with_delta':
         if file_exists(a_path): 
             dbutils.fs.rm(a_path)
@@ -97,6 +113,14 @@ def write_to_datalake(spk_df, a_path, method, container=None):
         
         the_blob.upload_blob(str_df)
         
+        
+cms_tables = {
+    'clients' : 'din_clients.slv_ops_cms_damna_stm', 
+    'txns'    : 'farore_transactions.slv_ops_cms_atptx_stm', 
+    'accounts': 'nayru_accounts.slv_ops_cms_dambs_stm', 
+    }
+
+        
 
 # COMMAND ----------
 
@@ -105,38 +129,44 @@ def write_to_datalake(spk_df, a_path, method, container=None):
 
 # COMMAND ----------
 
-damna_delta = f"{write_to}/damna/delta"
+print('abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/card-management/datasets/dambs/delta')
+print(accounts_delta)
 
-clients_genders = (spark.readStream(damna_delta)
-    .withColumn('trimestre', )
-    .select(*['amna_acct', 'amna_gender_code_1'])
+# COMMAND ----------
+
+run_period = date(2022, 9, 1)
+
+clients_delta  = f"{read_from}/damna/delta"
+accounts_delta = f"{read_from}/dambs/delta"
+
+clients_genders = (spark.read.table(cms_tables['clients'])
+    .select(F.col('amna_acct').alias('ambs_cust_nbr'), F.col('amna_gender_code_1'))
     .distinct())
 
-accounts = (spark.read.table('nayru_accounts.slv_ops_cms_reports')
-    .withColumn('MES_INFORMACION', F.trunc(F.col('FileDate'), 'month'))
-    .groupby(*['MES_INFORMACION', 'CustomerNumber', 'AccountNumber'])
-        .agg(F.count('AccountNumber').alias('N_REPS'))
-    .withColumn('CUENTA_MES', (F.col('N_REPS') > 0).cast(T.IntegerType()))
-    .join(clients_genders, on='CustomerNumber'))
+accounts = (spark.read.table(cms_tables['accounts'])
+    .withColumn('MONTH_REPORT', F.trunc(F.col('file_date'), 'month'))
+    .filter(F.col('MONTH_REPORT') == run_period)
+    .groupby(*['MONTH_REPORT', 'ambs_cust_nbr', 'ambs_acct'])
+        .agg(F.count('ambs_acct').alias('n_reps'))
+    .withColumn('cuenta_mes', (F.col('n_reps') > 0).cast(T.IntegerType()))
+    .join(clients_genders, on='ambs_cust_nbr'))
 
-select_cols = ['MES_INFORMACION'] + [f'CONTRACT_ACTIVE_DEBIT_CARD_{gender}' 
-    for gender in ['MALE', 'FEMALE', 'NOT_SPECIFIED']] 
+select_cols = ['MONTH_REPORT'] + [f'CONTRACT_ACTIVE_DEBIT_CARD_{gender}' 
+        for gender in ['MALE', 'FEMALE', 'NOT_SPECIFIED']] 
       
 r_2422 = (accounts
-    .groupby('MES_INFORMACION')
-        .pivot('GenderCode').sum('CUENTA_MES')
+    .groupby('MONTH_REPORT')
+        .pivot('amna_gender_code_1').sum('cuenta_mes')
     .withColumnRenamed('0', 'CONTRACT_ACTIVE_DEBIT_CARD_NOT_SPECIFIED')
     .withColumnRenamed('1', 'CONTRACT_ACTIVE_DEBIT_CARD_MALE')
     .withColumnRenamed('2', 'CONTRACT_ACTIVE_DEBIT_CARD_FEMALE')
     .select(*select_cols))
 
-max_month = r_2422.select(F.max('MES_INFORMACION')).collect()[0][0].strftime('%Y-%m-%d')
-
-# COMMAND ----------
-
-dt_2422 = f"{write_to}/r2422/r2422_{max_month}.csv" 
+dt_2422 = f"{write_to}/r2422/r2422_{run_period.strftime('%Y-%m-%d')}.csv" 
 
 write_to_datalake(r_2422, dt_2422, 'with_delta' , None)
+
+display(r_2422)
 
 # COMMAND ----------
 
@@ -145,13 +175,7 @@ write_to_datalake(r_2422, dt_2422, 'with_delta' , None)
 
 # COMMAND ----------
 
-the_date = dt.date(2022, 7, 1)
-
-
-# COMMAND ----------
-
-clients_delta = f"{write_to}/damna/delta"
-accounts_delta = = f"{write_to}/dambs/delta"
+run_period = date(2022, 4, 1)
 
 select_cols = ['Trimestre', 'Seccion', 'Moneda', 
     'Tipo_Cuenta', 'Tipo_Persona', 
@@ -161,28 +185,26 @@ select_cols = ['Trimestre', 'Seccion', 'Moneda',
 # NumberUnblockedCards CurrentBalanceSign CurrentBalance
 # FileDate
 
-sispagos = (spark.readStream.format('delta')
-    .load(accounts_delta)
+# sispagos = (spark.read.format('delta').load(cms_tables['accounts'])
+sispagos = (spark.read.format('delta').load(accounts_delta)
     .withColumn('Trimestre', F.trunc(F.col('file_date'), 'quarter'))
-    .filter(F.col('Trimestre') == the_date)
+    .filter(F.col('Trimestre') == run_period)
+    .groupBy(F.col('Trimestre'))
     .agg(
-        F.sum('NumberUnblockedCards').alias('Numero_de_cuentas'), 
-        F.sum('CurrentBalance'      ).alias('suma_balances'))
+        F.sum('ambs_nbr_unblked_cards').alias('numero_de_cuentas'), 
+        F.sum('ambs_curr_bal').alias('suma_balances'))
     .withColumn('Saldo_Promedio', F.round(F.col('suma_balances')/F.col('Numero_de_Cuentas'), 2))
-    .withColumn('Trimestre',   F.trunc(F.col('Trimestre'), 'month'))
-    .withColumn('Seccion',     F.lit('2.1'))
-    .withColumn('Moneda',      F.lit('MXN'))
-    .withColumn('Tipo_Cuenta', F.lit('1723'))
+    .withColumn('Seccion',      F.lit('2.1'))
+    .withColumn('Moneda',       F.lit('MXN'))
+    .withColumn('Tipo_Cuenta',  F.lit('1723'))
     .withColumn('Tipo_Persona', F.lit(''))
-    .select(*select_cols))
-    
-max_quarter = sispagos.select(F.max('Trimestre')).collect()[0][0].strftime('%Y-%m-%d')
+    .select(*select_cols)
+    )
 
-# COMMAND ----------
-
-dt_sispagos = f"{write_to}/sispagos/sispagos_{max_quarter}.csv" 
+dt_sispagos = f"{write_to}/sispagos/sispagos_{run_period.strftime('%Y-%m-%d')}.csv" 
     
 write_to_datalake(sispagos, dt_sispagos, 'with_delta' , None)
+display(sispagos)
 
 # COMMAND ----------
 
@@ -194,3 +216,7 @@ write_to_datalake(sispagos, dt_sispagos, 'with_delta' , None)
 # MAGIC > a_blob.exists()
 # MAGIC # True
 # MAGIC ```
+
+# COMMAND ----------
+
+dbutils.fs.ls(f"{write_to}/r2422")
