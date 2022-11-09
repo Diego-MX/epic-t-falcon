@@ -77,8 +77,6 @@ read_from = f"{paths['abfss'].format(stage='bronze', storage=resources['storage'
 write_to  = f"{paths['abfss'].format(stage='silver', storage=resources['storage'])}/{paths['silver']}"  
 
 
-
-
 # COMMAND ----------
 
 # MAGIC %md 
@@ -100,6 +98,48 @@ stream_keys = {
     'DAMBS1': ('dambs',  'dambs' , 'nayru_accounts.slv_ops_cms_dambs_stm'), 
     'DAMBS2': ('dambs2', 'dambs2', 'nayru_accounts.slv_ops_cms_dambs2_stm'), 
     'DAMBSC': ('dambsc', 'dambsc', 'nayru_accounts.slv_ops_cms_dambsc_stm')}
+
+
+# COMMAND ----------
+
+experiment = True
+if experiment: 
+    a_key = 'ATPTX'
+
+    b_key = stream_keys[a_key][0]
+
+    the_dir   = f"{read_from}/{a_key}" 
+    dtls_file = f"../refs/catalogs/{b_key}_detail.feather"
+    hdrs_file = f"../refs/catalogs/{b_key}_header.feather"
+    trlr_file = f"../refs/catalogs/{b_key}_trailer.feather"
+
+    dtls_df = pd.read_feather(dtls_file)
+    hdrs_df = pd.read_feather(hdrs_file)
+    trlr_df = pd.read_feather(trlr_file)
+
+    dtls_df['name'] = dtls_df['name'].str.replace(')', '', regex=False)
+
+
+    up_to_len = max(len_cols(hdrs_df), len_cols(trlr_df))
+    longer_rows = (F.length(F.rtrim(F.col('value'))) > up_to_len)
+
+    prep_dtls     = src_spk.colsdf_prepare(dtls_df)
+    the_selectors = src_spk.colsdf_2_select(prep_dtls, 'value')  
+    # Returns Dict: [1-substring, 2-typecols, 3-sorted]
+
+    the_schema = src_spk.colsdf_2_schema(prep_dtls)
+
+    read_options = {
+        'cloudFiles.format'                : 'text',
+        'cloudFiles.useIncrementalListing' : 'true', 
+        'recursiveFileLookup'              : 'true'}
+
+    pre_stream = (spark.read
+        .format('cloudFiles')
+        # .schema(the_schema)  doesnt work on value. 
+        .options(**read_options)
+        .load(the_dir)
+        .withColumn('input_file', F.input_file_name()))
 
 
 # COMMAND ----------
@@ -176,53 +216,6 @@ def len_cols(cols_df: DataFrame) -> int:
 
 # COMMAND ----------
 
-if False: 
-    a_key = 'DAMBS1'
-    b_key = stream_keys[a_key][0]
-
-    the_dir   = f"{read_from}/{a_key}" 
-    dtls_file = f"../refs/catalogs/{b_key}_detail.feather"
-    hdrs_file = f"../refs/catalogs/{b_key}_header.feather"
-    trlr_file = f"../refs/catalogs/{b_key}_trailer.feather"
-
-    dtls_df = pd.read_feather(dtls_file)
-    hdrs_df = pd.read_feather(hdrs_file)
-    trlr_df = pd.read_feather(trlr_file)
-      
-    up_to_len = max(len_cols(hdrs_df), len_cols(trlr_df))
-    longer_rows = (F.length(F.rtrim(F.col('value'))) > up_to_len)
-
-    prep_dtls = src_spk.colsdf_prepare(dtls_df)  # 1-substring, 2-typecols, 3-sorted
-    the_selectors = src_spk.colsdf_2_select(prep_dtls, 'value')
-    
-    date_col = F.to_date(
-        F.regexp_extract(F.col('input_file'), '(20[0-9/]+)', 1), 
-        'yyyy/MM/dd')
-    
-    read_options = {
-        'cloudFiles.format'                : 'text',
-        'cloudFiles.useIncrementalListing' : 'true', 
-        'recursiveFileLookup'              : 'true'}
-
-#     pre_stream = (spark.readStream
-#         .format('cloudFiles')
-#         .options(**read_options)
-#         .load(the_dir)
-#         .withColumn('input_file', F.input_file_name()))
-            
-                      
-#     the_stream = (pre_stream
-#         .withColumn('file_date', date_col)
-#         .filter(longer_rows)
-#         .select('file_date', *the_selectors['1-substring'])
-#         .select('file_date', *the_selectors['2-typecols' ]))
-    
-
-
-    
-
-# COMMAND ----------
-
 # MAGIC %md 
 # MAGIC ## CMS streams
 
@@ -255,10 +248,6 @@ damna_writer.start(damna_delta)
 
 # COMMAND ----------
 
-display(damna_stream)
-
-# COMMAND ----------
-
 # MAGIC %md
 # MAGIC ### ATPTX
 
@@ -284,7 +273,7 @@ atptx_writer.start(atptx_delta)
 
 # COMMAND ----------
 
-display(atptx_stream.select('atpt_mt_interchg_ref').distinct())
+display(atptx_stream)
 
 # COMMAND ----------
 
@@ -413,7 +402,3 @@ if erase_source:
 #     dbutils.fs.rm(f"{write_to}/dambs", True)
 #     dbutils.fs.rm(f"{write_to}/dambs2", True)
 #     dbutils.fs.rm(f"{write_to}/dambsc", True)
-
-# COMMAND ----------
-
-

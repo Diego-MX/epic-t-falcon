@@ -13,8 +13,30 @@ RESOURCE_SETUP = {
             'client_id'        : 'sp-core-events-client', 
             'client_secret'    : 'sp-core-events-secret'
         } 
+    }, 
+    'stg' : {
+        'scope'   : 'dbks-ops-conciliations', 
+        'storage' : 'stlakehyliastg', 
+        'sp_keys' : {
+            'tenant_id'        : 'aad-tenant-id', 
+            'subscription_id'  : 'sp-ops-conciliations-suscription', 
+            'client_id'        : 'sp-ops-conciliations-client', 
+            'client_secret'    : 'sp-ops-conciliations-secret'
+        } 
+    }, 
+    'prd' : {
+        'scope'   : 'dbks-ops-conciliations', 
+        'storage' : 'stlakehyliaprd', 
+        'sp_keys' : {
+            'tenant_id'        : 'aad-tenant-id', 
+            'subscription_id'  : 'sp-ops-conciliations-suscription', 
+            'client_id'        : 'sp-ops-conciliations-client', 
+            'client_secret'    : 'sp-ops-conciliations-secret'
+        } 
     }
 }
+
+
 
 DATALAKE_PATHS = {
     'abfss'  : "abfss://{stage}@{storage}.dfs.core.windows.net", 

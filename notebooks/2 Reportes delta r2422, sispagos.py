@@ -23,29 +23,27 @@ import re
 from azure.identity import ClientSecretCredential
 from azure.storage.blob import BlobServiceClient, ContainerClient
 
+from config import ENV, RESOURCE_SETUP, DATALAKE_PATHS as paths
+resources = RESOURCE_SETUP[ENV]
+
 # COMMAND ----------
 
 # Straight-up Write File
-write_to = "abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/regulatory/transformation-layer"
+
+
+slv_loc = paths['abfss'].format(stage='silver', storage=resources['storage'])
+blob_url = paths['abfss'].format(storage=resources['storage'])
+
+read_from = f"{slv_loc}/{paths['silver']}"
+write_to  = f"{slv_loc}/{paths['raw']}"
 
 # For Blob connection purposes
-dbks_scope = 'eh-core-banking'
-cred_keys = {
-    'tenant_id'        : 'aad-tenant-id', 
-    'subscription_id'  : 'sp-core-events-suscription', 
-    'client_id'        : 'sp-core-events-client', 
-    'client_secret'    : 'sp-core-events-secret'}
+cred_keys = resources['sp_keys']
 
-get_secret = lambda a_key: dbutils.secrets.get(dbks_scope, a_key)
+get_secret = lambda a_key: dbutils.secrets.get(resources['scope'], a_key)
 
-# For Blob connection with intermediate local file 
+
 local_tempfile = "/tmp/blob_report.csv"
-
-
-read_path = "ops/card-management/datasets"
-blob_url = "https://stlakehyliaqas.blob.core.windows.net/"
-storage_ext = "stlakehyliaqas.dfs.core.windows.net"
-read_from  = f"abfss://silver@{storage_ext}/{read_path}"
 
 
 # COMMAND ----------
@@ -71,6 +69,7 @@ if via_pandas:
     blob_service = BlobServiceClient(blob_url, blob_creds)
     at_container = blob_service.get_container_client('silver') 
     
+    
 def file_exists(a_path): 
     if a_path[:5] == "/dbfs":
         return os.path.exists(path)
@@ -80,13 +79,8 @@ def file_exists(a_path):
             return True
         except: 
             return False
-#         except Exception as e:
-#             if 'java.io.FileNotFoundException' in str(e):
-#                 return False
-#             else:
-#                 raise "Something Else Error"
         
-    
+        
 def write_to_datalake(spk_df, a_path, method='with_delta', container=None): 
     if method == 'with_delta':
         if file_exists(a_path): 
@@ -126,11 +120,6 @@ cms_tables = {
 
 # MAGIC %md
 # MAGIC # Reporte R-2422
-
-# COMMAND ----------
-
-print('abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/card-management/datasets/dambs/delta')
-print(accounts_delta)
 
 # COMMAND ----------
 

@@ -36,6 +36,11 @@
 
 # COMMAND ----------
 
+from importlib import reload
+reload(config)
+
+# COMMAND ----------
+
 from datetime import datetime as dt, date, timedelta as delta
 from os import listdir
 import pandas as pd
@@ -48,8 +53,6 @@ from azure.storage.blob import ContainerClient
 from config import ENV, RESOURCE_SETUP, DATALAKE_PATHS as paths
 
 resources = RESOURCE_SETUP[ENV]
-
-
 
 pre_write = paths['bronze']
 
