@@ -26,7 +26,7 @@ RESOURCE_SETUP = {
         'storage' : 'stlakehyliaqas',  # Is GEN2 ADLS. 
         'sp_keys' : {
             'tenant_id'        : (1, 'aad-tenant-id'), 
-            'subscription_id'  : (1, 'sp-core-events-suscription'), 
+            'subscription_id'  : (1, 'sp-core-events-subscription'), 
             'client_id'        : (1, 'sp-core-events-client'), 
             'client_secret'    : (1, 'sp-core-events-secret')
         } 
@@ -36,7 +36,7 @@ RESOURCE_SETUP = {
         'storage' : 'stlakehyliastg', 
         'sp_keys' : {
             'tenant_id'        : (1, 'aad-tenant-id'), 
-            'subscription_id'  : (1, 'sp-ops-conciliations-suscription'), 
+            'subscription_id'  : (1, 'sp-ops-conciliations-subscription'), 
             'client_id'        : (1, 'sp-ops-conciliations-client'), 
             'client_secret'    : (1, 'sp-ops-conciliations-secret')
         } 
@@ -46,7 +46,7 @@ RESOURCE_SETUP = {
         'storage' : 'stlakehyliaprd', 
         'sp_keys' : {
             'tenant_id'        : (1, 'aad-tenant-id'), 
-            'subscription_id'  : (1, 'sp-ops-conciliations-suscription'), 
+            'subscription_id'  : (1, 'sp-ops-conciliations-subscription'), 
             'client_id'        : (1, 'sp-ops-conciliations-client'), 
             'client_secret'    : (1, 'sp-ops-conciliations-secret')
         } 
