@@ -7,54 +7,24 @@
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC CREATE OR REPLACE TABLE bronze.dambs                
-# MAGIC (                   
-# MAGIC   AccountNumber STRING,
-# MAGIC   CustomerNumber STRING,
-# MAGIC   CardExpirationDate STRING,
-# MAGIC   NumberUnblockedCards INT,
-# MAGIC   CurrentBalanceSign STRING,
-# MAGIC   CurrentBalance FLOAT,
-# MAGIC   date DATE
-# MAGIC )
-# MAGIC USING DELTA 
-# MAGIC PARTITIONED BY (Date)
-# MAGIC LOCATION '/mnt/lakehylia-bronze/ops/regulatory/card-management/dambs';
+from importlib import reload
+import config
+reload(config)
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC CREATE OR REPLACE TABLE bronze.damna                 
-# MAGIC (                   
-# MAGIC   CustomerNumber STRING,
-# MAGIC   Name STRING,
-# MAGIC   Municipality STRING,
-# MAGIC   GenderCode STRING,
-# MAGIC   City STRING,
-# MAGIC   NameTypeIndicator STRING,
-# MAGIC   date DATE
-# MAGIC )
-# MAGIC USING DELTA 
-# MAGIC PARTITIONED BY (Date)
-# MAGIC LOCATION '/mnt/lakehylia-bronze/ops/regulatory/card-management/damna';
+from config import ENV, RESOURCE_SETUP, DATALAKE_PATHS as paths
+resources = RESOURCE_SETUP[ENV]
+
+abfss_loc = paths['abfss'].format('silver', resources['storage'])
+at_datasets = f"{abfss_loc}/{paths['datasets']}"
+
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC CREATE OR REPLACE TABLE bronze.atptx                 
-# MAGIC (                   
-# MAGIC   AccountNumber STRING,
-# MAGIC   EffectiveDate STRING,
-# MAGIC   TransactionType STRING,
-# MAGIC   TransactionSign STRING,
-# MAGIC   TransactionCode STRING,
-# MAGIC   TransactionAmountSign STRING,
-# MAGIC   TransactionAmount STRING,
-# MAGIC   AcceptorCategoryCode STRING,
-# MAGIC   TransactionChannel INT,
-# MAGIC   date DATE
-# MAGIC )
-# MAGIC USING DELTA 
-# MAGIC PARTITIONED BY (Date)
-# MAGIC LOCATION '/mnt/lakehylia-bronze/ops/regulatory/card-management/atptx';
+dbutils.fs.ls(at_datasets)
+# ...> atpt, dambs, dambs2, dambsc, damna
+
+# COMMAND ----------
+
+dbutils.fs.rm(f"{at_datasets}/dambsc", True)

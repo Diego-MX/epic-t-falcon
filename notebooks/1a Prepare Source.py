@@ -36,7 +36,12 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install -r ../reqs_dbks.txt
+
+# COMMAND ----------
+
 from importlib import reload
+import config
 reload(config)
 
 # COMMAND ----------
@@ -50,17 +55,23 @@ from zipfile import ZipFile, BadZipFile
 
 from azure.identity import ClientSecretCredential
 from azure.storage.blob import ContainerClient
-from config import ENV, RESOURCE_SETUP, DATALAKE_PATHS as paths
+from config import (ConfigEnviron, 
+    ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
+
+
+app_env = ConfigEnviron(ENV, SERVER, spark)
+app_env.set_credential()
+app_env.sparktransfer_credential()
 
 resources = RESOURCE_SETUP[ENV]
 
-pre_write = paths['bronze']
+pre_write = paths['prepared']
 
-abfss_brz = paths['abfss'].format(stage='bronze', storage=resources['storage'])
-blob_brz  = paths['blob' ].format(stage='bronze')
+abfss_brz = paths['abfss'].format('bronze', resources['storage'])
+blob_path = paths['blob' ].format(resources['storage'])
 
-abfss_read  = f"{abfss_brz}/{paths['raw']}"
-abfss_write = f"{abfss_brz}/{paths['bronze']}"
+abfss_read  = f"{abfss_brz}/{paths['from-cms']}"
+abfss_write = f"{abfss_brz}/{paths['prepared']}"
 
 
 def dbks_path(a_path: Path): 
@@ -104,12 +115,8 @@ to_unzip    = "/dbfs/FileStore/transformation-layer/tmp_unzipped"
 # Hint for files: EN DBUTILS no usar /DBFS.  En [Python] with(file_path) sí usar DBFS. 
 
 #%% Working with the datalake. 
-get_secret = lambda a_key: dbutils.secrets.get(resources['scope'], a_key)
 
-the_credential = ClientSecretCredential(**{k: get_secret(v) 
-        for (k, v) in resources['sp_keys'].items()})
-
-blob_container = ContainerClient(paths['blob'], 'bronze', the_credential) 
+blob_container = ContainerClient(blob_path, 'bronze', app_env.credential) 
 
 
 # COMMAND ----------
@@ -122,8 +129,8 @@ blob_container = ContainerClient(paths['blob'], 'bronze', the_credential)
 
 # COMMAND ----------
 
-previous_blobs = [re.sub(f"{paths['bronze']}/", '', a_blob.name) 
-    for a_blob in blob_container.list_blobs(name_starts_with=paths['bronze'])
+previous_blobs = [re.sub(f"{paths['prepared']}/", '', a_blob.name) 
+    for a_blob in blob_container.list_blobs(name_starts_with=paths['prepared'])
     if  a_blob.name.endswith('.txt')]
 
 mid_write_names = {label[0]: f"{reg_labels[label[1]]}/{re.sub('-', '/', label[2])}.txt" 
@@ -152,7 +159,7 @@ def download_extract_upload(a_file, verbose=1):
         raise "File Name no admite patrón Regex"
     b_file = a_match.group(1)    
     
-    blob_in = f"/{DATALAKE_SETUP['raw']}/{a_file}"
+    blob_in = f"/{paths['prepared']}/{a_file}"
     write_to = mid_write_names[a_file]
     
     try: 
@@ -204,7 +211,3 @@ for (ii, a_file) in enumerate(only_process_these):
         unprocessed.append(catch)
         
     
-
-# COMMAND ----------
-
-dbutils.fs.ls(abfss_write)

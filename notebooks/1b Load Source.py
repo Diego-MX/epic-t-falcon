@@ -39,7 +39,12 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install -r ../reqs_dbks.txt
+
+# COMMAND ----------
+
 from datetime import datetime as dt, date, timedelta as delta
+from delta.tables import DeltaTable
 import glob
 from itertools import product
 import numpy as np
@@ -54,27 +59,37 @@ from pyspark.sql import functions as F, types as T
 from pyspark.sql.window import Window as W
 
 import src.schemas as src_spk
-from config import ENV, RESOURCE_SETUP, DATALAKE_PATHS as paths
+from config import (ConfigEnviron, 
+    ENV, SERVER, RESOURCE_SETUP, 
+    DATALAKE_PATHS as paths, 
+    DELTA_TABLES as delta_keys)
 
 resources = RESOURCE_SETUP[ENV]
+app_environ = ConfigEnviron(ENV, SERVER, spark)
+app_environ.sparktransfer_credential()
+
+read_from = f"{paths['abfss'].format('bronze', resources['storage'])}/{paths['prepared']}"  
+write_to  = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['datasets']}"  
 
 
-def pd_print(a_df: pd.DataFrame, width=180): 
+def pd_print(a_df: DataFrame, width=180): 
     options = ['display.max_rows', None, 
                'display.max_columns', None, 
                'display.width', width]
     with pd.option_context(*options):
         print(a_df)
 
-
-# COMMAND ----------
-
-# Variables de alto nivel.  (Revisar archivo CONFIG.PY)
-
-read_path  = paths['bronze']
-
-read_from = f"{paths['abfss'].format(stage='bronze', storage=resources['storage'])}/{paths['bronze']}"  
-write_to  = f"{paths['abfss'].format(stage='silver', storage=resources['storage'])}/{paths['silver']}"  
+        
+def len_cols(cols_df: DataFrame) -> int: 
+    req_cols = set(['aux_fill', 'Length'])
+    
+    if not req_cols.issubset(cols_df.columns): 
+        raise "COLS_DF is assumed to have attributes 'AUX_FILL', 'LENGTH'."
+    
+    last_fill = cols_df['aux_fill'].iloc[-1]
+    up_to = -1 if last_fill else len(cols_df)
+    the_len = cols_df['Length'][:up_to].sum()
+    return int(the_len)
 
 
 # COMMAND ----------
@@ -84,29 +99,20 @@ write_to  = f"{paths['abfss'].format(stage='silver', storage=resources['storage'
 # MAGIC 
 # MAGIC Definimos llaves claves para leer y guardar archivos.  
 # MAGIC 
-# MAGIC La función de los _streams_ considera los siguientes elementos:  
+# MAGIC La función de los _deltas_ considera los siguientes elementos:  
 # MAGIC     - Se toman los fólders del _storage container_ en donde se depositaron los archivos descomprimidos.  
 # MAGIC     - También utilizamos los archivos de configuración que se guardan en la carpeta local del repositorio.  
-# MAGIC     - Se hace el match y se generan los streams correspondientes.  
+# MAGIC     - Se hace el match y se generan los deltas correspondientes.  
 # MAGIC     
 
 # COMMAND ----------
 
-stream_keys = {
-    'DAMNA' : ('damna',  'damna' , 'din_clients.slv_ops_cms_damna_stm'), 
-    'ATPTX' : ('atpt',   'atpt'  , 'farore_transactions.slv_ops_cms_atptx_stm'), 
-    'DAMBS1': ('dambs',  'dambs' , 'nayru_accounts.slv_ops_cms_dambs_stm'), 
-    'DAMBS2': ('dambs2', 'dambs2', 'nayru_accounts.slv_ops_cms_dambs2_stm'), 
-    'DAMBSC': ('dambsc', 'dambsc', 'nayru_accounts.slv_ops_cms_dambsc_stm')}
+experiment = False
 
-
-# COMMAND ----------
-
-experiment = True
 if experiment: 
     a_key = 'ATPTX'
 
-    b_key = stream_keys[a_key][0]
+    b_key = delta_keys[a_key][0]
 
     the_dir   = f"{read_from}/{a_key}" 
     dtls_file = f"../refs/catalogs/{b_key}_detail.feather"
@@ -129,26 +135,28 @@ if experiment:
 
     the_schema = src_spk.colsdf_2_schema(prep_dtls)
 
-    read_options = {
-        'cloudFiles.format'                : 'text',
-        'cloudFiles.useIncrementalListing' : 'true', 
-        'recursiveFileLookup'              : 'true'}
-
-    pre_stream = (spark.read
-        .format('cloudFiles')
-        # .schema(the_schema)  doesnt work on value. 
-        .options(**read_options)
+    pre_cols = ['value', F.input_file_name().alias('file_path'), 
+        F.col('_metadata.file_modification_time').alias('file_modified')]
+    
+    pre_delta = (spark.read.format('text')
+        .option('recursiveFileLookup', 'true')
+        .option('header', 'true')
         .load(the_dir)
-        .withColumn('input_file', F.input_file_name()))
+        .select(*pre_cols))
+    
+    display(pre_delta)
 
+    
 
 # COMMAND ----------
 
-    
-# Este query no cacha información de headers. 
-def stream_from_key(a_key, get_schema=False): 
-    b_key = stream_keys[a_key][0]
+# Usa las variables: DELTA_KEYS, READ_FROM, WRITE_TO
 
+
+def predelta_from_key(a_key, get_schema=False): 
+    b_key  = delta_keys[a_key][0]
+    a_file = delta_keys[a_key][1]
+    
     the_dir   = f"{read_from}/{a_key}" 
     dtls_file = f"../refs/catalogs/{b_key}_detail.feather"
     hdrs_file = f"../refs/catalogs/{b_key}_header.feather"
@@ -160,50 +168,46 @@ def stream_from_key(a_key, get_schema=False):
     
     dtls_df['name'] = dtls_df['name'].str.replace(')', '', regex=False)
     
+    delta_loc = f"{write_to}/{a_file}/delta"
     
     up_to_len = max(len_cols(hdrs_df), len_cols(trlr_df))
     longer_rows = (F.length(F.rtrim(F.col('value'))) > up_to_len)
 
+    if DeltaTable.isDeltaTable(spark, delta_loc): 
+        max_modified = (spark.read.format('delta')
+            .load(delta_loc)
+            .select(F.max('file_modified'))
+            .collect()[0][0])
+    else: 
+        max_modified = date(2020, 1, 1)
+
+    meta_cols = [('_metadata.file_name', 'file_path'), 
+        ('_metadata.file_modification_time', 'file_modified')]
+    
     prep_dtls     = src_spk.colsdf_prepare(dtls_df)
     the_selectors = src_spk.colsdf_2_select(prep_dtls, 'value')  # 1-substring, 2-typecols, 3-sorted
     
-    the_schema = src_spk.colsdf_2_schema(prep_dtls)
+        
+    pre_delta = (spark.read.format('text')
+        .option('recursiveFileLookup', 'true')
+        .option('header', 'true')
+        .load(the_dir, modifiedAfter=max_modified)
+        .select('value', *[F.col(a_col[0]).alias(a_col[1]) for a_col in meta_cols]))
     
-    read_options = {
-        'cloudFiles.format'                : 'text',
-        'cloudFiles.useIncrementalListing' : 'true', 
-        'recursiveFileLookup'              : 'true'}
-
-    pre_stream = (spark.readStream
-        .format('cloudFiles')
-        # .schema(the_schema)  doesnt work on value. 
-        .options(**read_options)
-        .load(the_dir)
-        .withColumn('input_file', F.input_file_name()))
-            
-    date_col = F.to_date(
-        F.regexp_extract(F.col('input_file'), '(20[0-9/]+)', 1), 
-        'yyyy/MM/dd')
-                      
-    a_stream = (pre_stream
-        .withColumn('file_date', date_col)
+    a_delta = (pre_delta
+        .withColumn('file_date', F.to_date(
+                F.regexp_extract(F.col('file_path'), '(20[0-9/]+)', 1), 'yyyy/MM/dd'))
         .filter(longer_rows)
-        .select('file_date', *the_selectors['1-substring'])
-        .select('file_date', *the_selectors['2-typecols' ]))
+        .select(*[a_col[1] for a_col in meta_cols], *the_selectors['1-substring'])
+        .select(*[a_col[1] for a_col in meta_cols], *the_selectors['2-typecols' ]))
     
     if get_schema: 
-        the_stream = (a_stream, the_schema)
+        the_schema = src_spk.colsdf_2_schema(prep_dtls)
+        delta_tbl = (a_delta, the_schema)
     else: 
-        the_stream = (a_stream)
+        delta_tbl = (a_delta)
     
-    return the_stream
-
-
-def len_cols(cols_df: DataFrame) -> int: 
-    last_fill = cols_df['aux_fill'].iloc[-1]
-    up_to = -1 if last_fill else len(cols_df)
-    the_len = cols_df['Length'][:up_to].sum()
-    return int(the_len)
+    return delta_tbl
 
 
 # COMMAND ----------
@@ -217,7 +221,7 @@ def len_cols(cols_df: DataFrame) -> int:
 # COMMAND ----------
 
 # MAGIC %md 
-# MAGIC ## CMS streams
+# MAGIC ## CMS deltas
 
 # COMMAND ----------
 
@@ -228,23 +232,20 @@ def len_cols(cols_df: DataFrame) -> int:
 
 damna_key = 'DAMNA'
 
-# damna_stream, damna_schema = stream_from_key(damna_key, get_schema=True)
-damna_stream, damna_schema = stream_from_key(damna_key, get_schema=True)
+damna_delta, damna_schema = predelta_from_key(damna_key, get_schema=True)
 
-damna_file = stream_keys[damna_key][1]
-damna_tbl  = stream_keys[damna_key][2]
+damna_file = delta_keys[damna_key][1]
+damna_tbl  = delta_keys[damna_key][2]
 
-damna_chkpoints = f"{write_to}/{damna_file}/checkpoints"
-damna_delta     = f"{write_to}/{damna_file}/delta"
+damna_loc = f"{write_to}/{damna_file}/delta"
 
-damna_writer = (damna_stream.writeStream
-    .format('delta')
-    .outputMode('append')
-    .options(**{
-        'mergeSchema': False, 
-        'checkpointLocation': damna_chkpoints}))
+(damna_delta.write.format('delta')
+    .mode('append')
+    .option('mergeSchema', 'true')
+    .save(damna_loc))
 
-damna_writer.start(damna_delta)
+display(damna_delta)
+
 
 # COMMAND ----------
 
@@ -253,27 +254,24 @@ damna_writer.start(damna_delta)
 
 # COMMAND ----------
 
-atptx_key = 'ATPTX'
-atptx_file = stream_keys[atptx_key][1]
-atptx_tbl  = stream_keys[atptx_key][2]
+atptx_key  = 'ATPTX'
+atptx_file = delta_keys[atptx_key][1]
+atptx_tbl  = delta_keys[atptx_key][2]
 
-atptx_chkpoints = f"{write_to}/{atptx_file}/checkpoints"
-atptx_delta     = f"{write_to}/{atptx_file}/delta"
+atptx_loc = f"{write_to}/{atptx_file}/delta"
 
-atptx_stream = stream_from_key(atptx_key)
+atptx_delta = predelta_from_key(atptx_key)
 
-atptx_writer = (atptx_stream.writeStream.format('delta')
-    .outputMode('append')
-    .options(**{
-        'mergeSchema': False, 
-        'checkpointLocation': atptx_chkpoints}))
+(atptx_delta.write.format('delta')
+    .mode('append')
+    .option('mergeSchema', 'true')
+    .save(atptx_loc))
 
-atptx_writer.start(atptx_delta)
-
+display(atptx_delta)
 
 # COMMAND ----------
 
-display(atptx_stream)
+display(atptx_delta)
 
 # COMMAND ----------
 
@@ -282,27 +280,21 @@ display(atptx_stream)
 
 # COMMAND ----------
 
-dambs1_key = 'DAMBS1'
-dambs1_file = stream_keys[dambs1_key][1]
-dambs1_tbl  = stream_keys[dambs1_key][2]
+dambs1_key  = 'DAMBS1'
+dambs1_file = delta_keys[dambs1_key][1]
 
-dambs1_chkpoints = f"{write_to}/{dambs1_file}/checkpoints"
-dambs1_delta     = f"{write_to}/{dambs1_file}/delta"
 
-dambs1_stream = stream_from_key(dambs1_key)
+dambs1_path = f"{write_to}/{dambs1_file}/delta"
 
-dambs1_writer = (dambs1_stream
-    .writeStream.format('delta')
-    .outputMode('append')
-    .options(**{
-        'mergeSchema': False, 
-        'checkpointLocation': dambs1_chkpoints}))
+dambs1_delta = predelta_from_key(dambs1_key)
 
-dambs1_writer.start(dambs1_delta)
+(dambs1_delta
+    .write.format('delta')
+    .mode('append')
+    .option('mergeSchema', 'true')
+    .save(dambs1_path))
 
-# COMMAND ----------
-
-display(dambs1_stream)
+display(dambs1_delta)
 
 # COMMAND ----------
 
@@ -311,28 +303,22 @@ display(dambs1_stream)
 
 # COMMAND ----------
 
-dambs2_key = 'DAMBS2'
-dambs2_file = stream_keys[dambs2_key][1]
-dambs2_tbl  = stream_keys[dambs2_key][2]
+dambs2_key  = 'DAMBS2'
+dambs2_file = delta_keys[dambs2_key][1]
+dambs2_tbl  = delta_keys[dambs2_key][2]
 
-dambs2_chkpoints = f"{write_to}/{dambs2_file}/checkpoints"
-dambs2_delta     = f"{write_to}/{dambs2_file}/delta"
+dambs2_path = f"{write_to}/{dambs2_file}/delta"
 
-dambs2_stream, dambs2_schema = stream_from_key(dambs2_key, get_schema=True)
+dambs2_delta, dambs2_schema = predelta_from_key(dambs2_key, get_schema=True)
 
-dambs2_writer = (dambs2_stream.writeStream.format('delta')
-    .outputMode('append')
-    .options(**{
-        'mergeSchema': False, 
-        'checkpointLocation': dambs2_chkpoints}))
+(dambs2_delta.write.format('delta')
+    .mode('append')
+    .option('mergeSchema', 'true')
+    .save(dambs2_path))
 
-dambs2_writer.start(dambs2_delta)
+display(dambs2_delta)
 
 
-
-# COMMAND ----------
-
-display(dambs2_stream)
 
 # COMMAND ----------
 
@@ -341,26 +327,20 @@ display(dambs2_stream)
 
 # COMMAND ----------
 
-dambsc_key = 'DAMBSC'
-dambsc_file = stream_keys[dambsc_key][1]
-dambsc_tbl  = stream_keys[dambsc_key][2]
+dambsc_key  = 'DAMBSC'
+dambsc_file = delta_keys[dambsc_key][1]
+dambsc_tbl  = delta_keys[dambsc_key][2]
 
-dambsc_chkpoints = f"{write_to}/{dambsc_file}/checkpoints"
-dambsc_delta     = f"{write_to}/{dambsc_file}/delta"
+dambsc_path= f"{write_to}/{dambsc_file}/delta"
 
-dambsc_stream = stream_from_key(dambsc_key)
+dambsc_delta = predelta_from_key(dambsc_key)
 
-dambsc_writer = (dambsc_stream.writeStream.format('delta')
-    .outputMode('append')
-    .options(**{
-        'mergeSchema': False, 
-        'checkpointLocation': dambsc_chkpoints}))
+(dambsc_delta.write.format('delta')
+    .mode('append')
+    .option('mergeSchema', 'true')
+    .save(dambsc_path))
 
-dambsc_writer.start(dambsc_delta)
-
-# COMMAND ----------
-
-display(dambsc_stream)
+display(dambsc_delta)
 
 # COMMAND ----------
 
@@ -369,11 +349,11 @@ display(dambsc_stream)
 
 # COMMAND ----------
 
-stream_keys
+delta_keys
 
 # COMMAND ----------
 
-first_time = True
+first_time = False
 if first_time: 
 #     pass
     spark.sql(f"CREATE TABLE IF NOT EXISTS {damna_tbl } USING DELTA LOCATION '{damna_delta }'")
