@@ -1,3 +1,26 @@
+# Runbook 
+  
+El código de este repo se ejecuta en el ambiente de Databricks.   
+Utilizamos la nomenclatura `ops-conciliations` para identificar los recursos.  
+Este repo (`transformation-layer`) es parte del análogo `ops-conciliations` de manera 
+que lo utilizamos el nombre por ser más significativo.  
+
+Entonces utiliza los siguientes recursos:  
+* `ops-conciliations`: un _service principal_ designado a este proyecto
+* `dbks-ops-conciliations`: un _scope_ en Databricks con las claves del principado:  
+  `aad-tenant-id`, `sp-ops-conciliations-subscription`, 
+  `sp-ops-conciliations-client`, `sp-ops-conciliations-secret`, no utilizamos _scope_.  
+* `stlakehylia<env>`: el nombre del _storage container_ que apunta al _datalake_. 
+  Las "carpetas" del datalake que se utilizan son:  
+  - `ops/regulatory/card-management/transformation-layer`   
+  - `ops/card-management/datasets`   
+  - `ops/transactions/spei`   
+  cada una en (algunos de) los contenedores `raw` 🥩, `bronze` 🥉, `silver` 🥈, `gold` 🥇.  
+
+* ddPara tablas en Databricks,
+  - El metastore 
+
+
 # Descripción  
 
 Para la entrega del código les pedimos utilizar este formato de repositorio.  
