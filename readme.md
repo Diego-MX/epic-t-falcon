@@ -1,3 +1,8 @@
+# Runbook  
+
+Revisar el siguiente linke en [Confluence][runbook].  
+
+
 # Descripción  
 
 Para la entrega del código les pedimos utilizar este formato de repositorio.  
@@ -23,3 +28,6 @@ Para la entrega del código les pedimos utilizar este formato de repositorio.
     `1 carga datos fuente 2`  
     `2 resumir datos por usuario`   
     `3 programar schedule para los Notebooks (1 y 3 meses)`
+    
+    
+[runbook]: https://bineo.atlassian.net/wiki/spaces/~6282a2fbd9ddcc006e9c3438/pages/1725595654/Conciliaciones+-+runbook
