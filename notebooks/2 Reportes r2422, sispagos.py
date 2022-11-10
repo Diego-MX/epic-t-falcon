@@ -40,6 +40,13 @@ get_secret = lambda a_key: dbutils.secrets.get(dbks_scope, a_key)
 # For Blob connection with intermediate local file 
 local_tempfile = "/tmp/blob_report.csv"
 
+
+read_path = 'ops/card-management/datasets'
+blob_url = 'https://stlakehyliaqas.blob.core.windows.net/'
+storage_ext = 'stlakehyliaqas.dfs.core.windows.net
+read_from  = f"abfss://silver@{storage_ext}/{read_path}"
+
+
 # COMMAND ----------
 
 # MAGIC %md 
@@ -56,19 +63,12 @@ local_tempfile = "/tmp/blob_report.csv"
 
 # COMMAND ----------
 
-via_pandas = False: 
+via_pandas = False 
+
 if via_pandas: 
     blob_creds = ClientSecretCredential(**{k: get_secret(v) for (k, v) in cred_keys.items()})
     blob_service = BlobServiceClient(blob_url, blob_creds)
     at_container = blob_service.get_container_client('silver') 
-    
-def file_exists(a_path): 
-    try: 
-        dbutils.fs.ls(a_path)
-        does_it = True
-    except: 
-        does_it = False
-    return does_it
     
     
 def write_to_datalake(spk_df, a_path, method, container=None): 
@@ -100,18 +100,16 @@ def write_to_datalake(spk_df, a_path, method, container=None):
 
 # COMMAND ----------
 
-a_blob = at_container.get_blob_client(pd_sispagos)
-a_blob.exists()
-
-# COMMAND ----------
-
 # MAGIC %md
 # MAGIC # Reporte R-2422
 
 # COMMAND ----------
 
-clients_genders = (spark.read.table('din_clients.slv_ops_cms_reports')
-    .select(*['CustomerNumber', 'GenderCode'])
+damna_delta = f"{write_to}/damna/delta"
+
+clients_genders = (spark.readStream(damna_delta)
+    .withColumn('trimestre', )
+    .select(*['amna_acct', 'amna_gender_code_1'])
     .distinct())
 
 accounts = (spark.read.table('nayru_accounts.slv_ops_cms_reports')
@@ -147,6 +145,14 @@ write_to_datalake(r_2422, dt_2422, 'with_delta' , None)
 
 # COMMAND ----------
 
+the_date = dt.date(2022, 7, 1)
+
+
+# COMMAND ----------
+
+clients_delta = f"{write_to}/damna/delta"
+accounts_delta = = f"{write_to}/dambs/delta"
+
 select_cols = ['Trimestre', 'Seccion', 'Moneda', 
     'Tipo_Cuenta', 'Tipo_Persona', 
     'Numero_de_Cuentas', 'Saldo_Promedio']
@@ -155,15 +161,17 @@ select_cols = ['Trimestre', 'Seccion', 'Moneda',
 # NumberUnblockedCards CurrentBalanceSign CurrentBalance
 # FileDate
 
-sispagos = (spark.read.table('nayru_accounts.slv_ops_cms_reports')
-    .withColumn('Trimestre', F.trunc(F.col('FileDate'), 'quarter'))
-    .groupby('Trimestre').agg(
-        F.sum('NumberUnblockedCards').alias('Numero_de_Cuentas'), 
-        F.sum('CurrentBalance'      ).alias('_suma_balances'))
-    .withColumn('Saldo_Promedio', F.round(F.col('_suma_balances')/F.col('Numero_de_Cuentas'), 2))
-    .withColumn('Trimestre', F.trunc(F.col('Trimestre'), 'month'))
-    .withColumn('Seccion',   F.lit('2.1'))
-    .withColumn('Moneda',    F.lit('MXN'))
+sispagos = (spark.readStream.format('delta')
+    .load(accounts_delta)
+    .withColumn('Trimestre', F.trunc(F.col('file_date'), 'quarter'))
+    .filter(F.col('Trimestre') == the_date)
+    .agg(
+        F.sum('NumberUnblockedCards').alias('Numero_de_cuentas'), 
+        F.sum('CurrentBalance'      ).alias('suma_balances'))
+    .withColumn('Saldo_Promedio', F.round(F.col('suma_balances')/F.col('Numero_de_Cuentas'), 2))
+    .withColumn('Trimestre',   F.trunc(F.col('Trimestre'), 'month'))
+    .withColumn('Seccion',     F.lit('2.1'))
+    .withColumn('Moneda',      F.lit('MXN'))
     .withColumn('Tipo_Cuenta', F.lit('1723'))
     .withColumn('Tipo_Persona', F.lit(''))
     .select(*select_cols))

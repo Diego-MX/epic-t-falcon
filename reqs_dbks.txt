@@ -1,0 +1,8 @@
+# Utilities
+azure-identity
+azure-keyvault-secrets
+azure-storage-blob
+
+# Data 
+pandas
+
