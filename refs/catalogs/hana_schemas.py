@@ -2,6 +2,10 @@ from pyspark.sql import functions as F, types as T
 from hdbcli import dbapi
 
 
+# Esto se debe de leer de una tabla. Ejemplo:
+# from spark_utils import table_2_struct
+# 
+# schema = table_2_struct(pd.from_csv(the_file))  
 schema = T.StructType([
     T.StructField("NUMCLIENTE", T.StringType(), False), 
     T.StructField("NUMCREDITO", T.StringType(), False), 
@@ -90,8 +94,8 @@ long_types = ["TIPOCREDITO",
 
 
 conn = dbapi.connect(
-address="8974d28e-a050-49b9-9361-2c72ee99accc.hana.prod-us21.hanacloud.ondemand.com",
-port=443,
-user="DATALAKE",
-password="Epic_123",
-encrypt=True)
+    address="8974d28e-a050-49b9-9361-2c72ee99accc.hana.prod-us21.hanacloud.ondemand.com",
+    port=443,
+    user="DATALAKE",
+    password="Epic_123",
+    encrypt=True)
