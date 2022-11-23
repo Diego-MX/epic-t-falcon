@@ -153,6 +153,9 @@ if experiment:
 # Usa las variables: DELTA_KEYS, READ_FROM, WRITE_TO
 
 
+def update_create_delta(a_key, get_schema=False): 
+    
+    
 def predelta_from_key(a_key, get_schema=False): 
     b_key  = delta_keys[a_key][0]
     a_file = delta_keys[a_key][1]
@@ -173,7 +176,8 @@ def predelta_from_key(a_key, get_schema=False):
     up_to_len = max(len_cols(hdrs_df), len_cols(trlr_df))
     longer_rows = (F.length(F.rtrim(F.col('value'))) > up_to_len)
 
-    if DeltaTable.isDeltaTable(spark, delta_loc): 
+    delta_exists = DeltaTable.isDeltaTable(spark, delta_loc)
+    if delta_exists: 
         max_modified = (spark.read.format('delta')
             .load(delta_loc)
             .select(F.max('file_modified'))
@@ -187,7 +191,6 @@ def predelta_from_key(a_key, get_schema=False):
     prep_dtls     = src_spk.colsdf_prepare(dtls_df)
     the_selectors = src_spk.colsdf_2_select(prep_dtls, 'value')  # 1-substring, 2-typecols, 3-sorted
     
-        
     pre_delta = (spark.read.format('text')
         .option('recursiveFileLookup', 'true')
         .option('header', 'true')
@@ -237,14 +240,16 @@ damna_delta, damna_schema = predelta_from_key(damna_key, get_schema=True)
 damna_file = delta_keys[damna_key][1]
 damna_tbl  = delta_keys[damna_key][2]
 
-damna_loc = f"{write_to}/{damna_file}/delta"
+damna_path = f"{write_to}/{damna_file}/delta"
 
 (damna_delta.write.format('delta')
     .mode('append')
     .option('mergeSchema', 'true')
-    .save(damna_loc))
+    .save(damna_path))
 
 display(damna_delta)
+
+
 
 
 # COMMAND ----------
@@ -258,14 +263,15 @@ atptx_key  = 'ATPTX'
 atptx_file = delta_keys[atptx_key][1]
 atptx_tbl  = delta_keys[atptx_key][2]
 
-atptx_loc = f"{write_to}/{atptx_file}/delta"
+atptx_path = f"{write_to}/{atptx_file}/delta"
 
-atptx_delta = predelta_from_key(atptx_key)
+atptx_delta = (predelta_from_key(atptx_key)
+    .withColumn(''))
 
 (atptx_delta.write.format('delta')
     .mode('append')
     .option('mergeSchema', 'true')
-    .save(atptx_loc))
+    .save(atptx_path))
 
 display(atptx_delta)
 
@@ -353,14 +359,14 @@ delta_keys
 
 # COMMAND ----------
 
-first_time = False
+first_time = True
 if first_time: 
 #     pass
-    spark.sql(f"CREATE TABLE IF NOT EXISTS {damna_tbl } USING DELTA LOCATION '{damna_delta }'")
-    spark.sql(f"CREATE TABLE IF NOT EXISTS {atptx_tbl } USING DELTA LOCATION '{atptx_delta }'")
-    spark.sql(f"CREATE TABLE IF NOT EXISTS {dambs1_tbl} USING DELTA LOCATION '{dambs1_delta}'")
-    spark.sql(f"CREATE TABLE IF NOT EXISTS {dambs2_tbl} USING DELTA LOCATION '{dambs2_delta}'")
-    spark.sql(f"CREATE TABLE IF NOT EXISTS {dambsc_tbl} USING DELTA LOCATION '{dambsc_delta}'")
+    #spark.sql(f"CREATE TABLE IF NOT EXISTS {damna_tbl } USING DELTA LOCATION '{damna_path }'")
+    spark.sql(f"CREATE TABLE IF NOT EXISTS {atptx_tbl } USING DELTA LOCATION '{atptx_path }'")
+    #spark.sql(f"CREATE TABLE IF NOT EXISTS {dambs1_tbl} USING DELTA LOCATION '{dambs1_path}'")
+    #spark.sql(f"CREATE TABLE IF NOT EXISTS {dambs2_tbl} USING DELTA LOCATION '{dambs2_path}'")
+    #spark.sql(f"CREATE TABLE IF NOT EXISTS {dambsc_tbl} USING DELTA LOCATION '{dambsc_path}'")
 
 # COMMAND ----------
 

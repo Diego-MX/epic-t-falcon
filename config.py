@@ -1,10 +1,9 @@
 from os import environ, getenv
 import re
 
-
-
 from azure.identity import ClientSecretCredential
 from azure.identity._credentials.default import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
 try: 
     from pyspark.dbutils import DBUtils
 except ImportError: 
@@ -14,26 +13,27 @@ try:
 except ImportError: 
     load_dotenv = None
     
-
-ENV    = environ.get('ENV_TYPE')
+ENV = environ.get('ENV_TYPE')
 SERVER = environ.get('SERVER_TYPE')
+CORE_ENV = environ.get('CORE_ENV')
+
 
 RESOURCE_SETUP = {
     # No hay DEV porque no quisieron poner los archivos en DEV. 
     # Entonces usamos QAS como si fuera DEV. 🤷
+    # Tampoco se trata de echar culpas ... 
     'qas' : {
         'scope'   : 'eh-core-banking', 
-        'storage' : 'stlakehyliaqas',  # Is GEN2 ADLS. 
-        'sp_keys' : {
+        'sp_keys' : { # oauth-databricks-qas
             'tenant_id'        : (1, 'aad-tenant-id'), 
             'subscription_id'  : (1, 'sp-core-events-suscription'), 
             'client_id'        : (1, 'sp-core-events-client'), 
-            'client_secret'    : (1, 'sp-core-events-secret')
-        } 
+            'client_secret'    : (1, 'sp-core-events-secret')}, 
+        'storage' : 'stlakehyliaqas', 
+        'keyvault': 'kv-cx-data-qas', 
     }, 
     'stg' : {
-        'scope'   : 'ops-conciliations', 
-        'storage' : 'stlakehyliastg', 
+        'scope'   : 'ops-conciliations-stg', 
         'sp_keys' : {
             'tenant_id'        : (1, 'aad-tenant-id'), 
             'subscription_id'  : (1, 'sp-ops-conciliations-suscription'), 
@@ -42,8 +42,7 @@ RESOURCE_SETUP = {
         } 
     }, 
     'prd' : {
-        'scope'   : 'ops-conciliations', 
-        'storage' : 'stlakehyliaprd', 
+        'scope'   : 'ops-conciliations-prd', 
         'sp_keys' : {
             'tenant_id'        : (1, 'aad-tenant-id'), 
             'subscription_id'  : (1, 'sp-ops-conciliations-suscription'), 
@@ -54,14 +53,48 @@ RESOURCE_SETUP = {
 }
 
 
+
+CORE_SETUP = {
+    # MAIN y AUTH se usan diferentes en las APIs de SAP. 
+    # ... cuidado con (USERNAME, PASSWORD) de cada uno. 
+    'dev-sap': {
+        'vault': 'kv-collections-data-dev', 
+        'main' : { 
+            'url' : "https://sbx-latp-apim.prod.apimanagement.us20.hana.ondemand.com/s4b",
+            'access' : { 
+                'username': (1, 'core-api-key'), 
+                'password': (1, 'core-api-secret') } }, 
+            'auth' : {
+                'url' : "https://latp-apim.prod.apimanagement.us20.hana.ondemand.com/oauth2/token", 
+                'data': {
+                    'grant_type' : 'password', 
+                    'username'   : (1, 'core-api-user'), 
+                    'password'   : (1, 'core-api-password') } } },
+    'qas-sap': {
+        'main': {
+            'url': "https://apiqas.apimanagement.us21.hana.ondemand.com/s4b",
+            'access': {
+                'username': (1, 'core-api-key'), 
+                'password': (1, 'core-api-secret')} }, 
+        'auth' : {
+            'url'  : "https://apiqas.apimanagement.us21.hana.ondemand.com/oauth2/token", 
+            'data' : {
+                'grant_type': 'password', 
+                'username': (1, 'core-api-user'), 
+                'password': (1, 'core-api-password')} } } }
+
+
+# Env-independent Usage Variables. 
+
 DATALAKE_PATHS = {
-    'spei'  : "ops/transactions/spei", 
-    'blob'  : "https://{}.blob.core.windows.net/",   # STORAGE
-    'abfss' : "abfss://{}@{}.dfs.core.windows.net",  # CONTAINER(bronze|silver|gold), STORAGE
+    'spei'     : "ops/transactions/spei", 
+    'blob'     : "https://{}.blob.core.windows.net/",   # STORAGE
+    'abfss'    : "abfss://{}@{}.dfs.core.windows.net",  # CONTAINER(bronze|silver|gold), STORAGE
     'from-cms' : "ops/regulatory/card-management/transformation-layer", 
     'prepared' : "ops/regulatory/card-management/transformation-layer/unzipped-ready", 
     'reports'  : "ops/regulatory/transformation-layer",
     'datasets' : "ops/card-management/datasets",
+    'commissions': "ops/account-management/commissions",
 }
 
 DELTA_TABLES = {
@@ -226,7 +259,40 @@ class ConfigEnviron():
         for a_conf, its_val in self.call_dict(pre_confs).items():
             print(f"{a_conf} = {its_val}")
             self.spark.conf.set(a_conf, its_val)
-          
+            
+            
+    def use_vault(self, get_vault=None):
+        # When get_vault is None, the default keyvault is set. 
+        # Otherwise, just return a non-default vault object. 
+        if not hasattr(self, 'credential'): 
+            self.set_credential()
+        vault_name = get_vault if get_vault else self.config['keyvault']
+        params =  {
+            'vault_url': f"https://{vault_name}.vault.azure.net/", 
+            'credential': self.credential}
+        the_vault = SecretClient(**params) 
+        if get_vault is None: 
+            self.vault = the_vault
+        return the_vault
+    
+    
+    def prepare_coresession(self, core_env): 
+        core_config = CORE_SETUP[core_env]
+        a_vault = self.use_vault(core_config.get('vault', None))
         
-
+        is_tuple   = lambda xx: isinstance(xx, tuple)
+        get_secret = lambda kk: a_vault.get_secret(kk).value
+        secret_2   = lambda vv: get_secret(vv[1]) if is_tuple(vv) else vv
+        call_dict  = lambda dd: {k: secret_2(v) for k, v in dd.items()} 
+        
+        sessioner = {
+            'config'    : core_config, 
+            'call-dict' : call_dict, 
+            'get-secret': get_secret}            
+        return sessioner
+    
+    
+    
+        
+        
     
