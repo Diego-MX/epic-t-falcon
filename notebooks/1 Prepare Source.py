@@ -24,9 +24,6 @@
 # MAGIC   ... pues preparan la ejecución.  
 # MAGIC - **Ejecución**  
 # MAGIC   Donde ocurre la acción.  
-# MAGIC - **Iniciación**  
-# MAGIC   Es para definir las tablas en el _metastore_ una vez que fueron guardadas en el _datalake_.   
-# MAGIC   Cabe mencionar que no afecta la etapa de Ejecución.  
 
 # COMMAND ----------
 
@@ -39,6 +36,16 @@
 
 # COMMAND ----------
 
+# MAGIC %pip install -r ../reqs_dbks.txt
+
+# COMMAND ----------
+
+from importlib import reload
+import config
+reload(config)
+
+# COMMAND ----------
+
 from datetime import datetime as dt, date, timedelta as delta
 from os import listdir
 import pandas as pd
@@ -48,23 +55,24 @@ from zipfile import ZipFile, BadZipFile
 
 from azure.identity import ClientSecretCredential
 from azure.storage.blob import ContainerClient
+from config import (ConfigEnviron, 
+    ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 
-dbks_scope = 'eh-core-banking'
-blob_url = 'https://stlakehyliaqas.blob.core.windows.net/'
 
-cred_keys = {
-    'tenant_id'        : 'aad-tenant-id', 
-    'subscription_id'  : 'sp-core-events-suscription', 
-    'client_id'        : 'sp-core-events-client', 
-    'client_secret'    : 'sp-core-events-secret'}
+app_env = ConfigEnviron(ENV, SERVER, spark)
+app_env.set_credential()
+app_env.sparktransfer_credential()
 
-read_container = 'bronze'
+resources = RESOURCE_SETUP[ENV]
 
-read_path = "ops/regulatory/card-management/transformation-layer"
-pre_write = "ops/regulatory/card-management/transformation-layer/unzipped-ready"
+pre_write = paths['prepared']
 
-read_from = f"abfss://bronze@stlakehyliaqas.dfs.core.windows.net/{read_path}"
-mid_write = f"abfss://bronze@stlakehyliaqas.dfs.core.windows.net/{pre_write}"
+abfss_brz = paths['abfss'].format('bronze', resources['storage'])
+blob_path = paths['blob' ].format(resources['storage'])
+
+abfss_read  = f"{abfss_brz}/{paths['from-cms']}"
+abfss_write = f"{abfss_brz}/{paths['prepared']}"
+
 
 def dbks_path(a_path: Path): 
     a_str = str(a_path)
@@ -87,10 +95,10 @@ reg_labels = {
     'UAT_CUENTAS_DAMBSC01' : 'DAMBSC'}
 
 file_regex = r"([A-Z_0-9]*?)_([0-9\-]*)\.ZIP"
-zip_regex = r"[A-Z]*_[A-Z]*_([A-Z0-9]*_[0-9\-]*)\.ZIP"
+zip_regex  = r"[A-Z]*_[A-Z]*_([A-Z0-9]*_[0-9\-]*)\.ZIP"
 
 
-the_filenames = [filish.name for filish in dbutils.fs.ls(read_from)]
+the_filenames = [filish.name for filish in dbutils.fs.ls(abfss_read)]
 
 files_and_labels = [(a_name,) + re.match(file_regex, a_name).groups() 
     for a_name in the_filenames if re.match(file_regex, a_name)]
@@ -100,19 +108,15 @@ observed_labels = set(fl_lb[1] for fl_lb in files_and_labels)
 if set(reg_labels) != observed_labels: 
     raise "File Labels are not as expected."
 
-
+    
 #%% Local temporary download. 
 to_download = "/dbfs/FileStore/transformation-layer/tmp_download.zip"
 to_unzip    = "/dbfs/FileStore/transformation-layer/tmp_unzipped"
 # Hint for files: EN DBUTILS no usar /DBFS.  En [Python] with(file_path) sí usar DBFS. 
 
-
 #%% Working with the datalake. 
-get_secret = lambda a_key: dbutils.secrets.get(dbks_scope, a_key)
 
-the_credential = ClientSecretCredential(**{k: get_secret(v) for (k, v) in cred_keys.items()})
-
-blob_container = ContainerClient(blob_url, 'bronze', the_credential) 
+blob_container = ContainerClient(blob_path, 'bronze', app_env.credential) 
 
 
 # COMMAND ----------
@@ -125,8 +129,8 @@ blob_container = ContainerClient(blob_url, 'bronze', the_credential)
 
 # COMMAND ----------
 
-previous_blobs = [re.sub(f"{pre_write}/", '', a_blob.name) 
-    for a_blob in blob_container.list_blobs(name_starts_with=pre_write)
+previous_blobs = [re.sub(f"{paths['prepared']}/", '', a_blob.name) 
+    for a_blob in blob_container.list_blobs(name_starts_with=paths['prepared'])
     if  a_blob.name.endswith('.txt')]
 
 mid_write_names = {label[0]: f"{reg_labels[label[1]]}/{re.sub('-', '/', label[2])}.txt" 
@@ -136,6 +140,7 @@ only_process_these = {zip_name: txt
     for zip_name, txt in mid_write_names.items()
     if  txt not in previous_blobs}
 
+only_process_these
 
 # COMMAND ----------
 
@@ -145,7 +150,7 @@ only_process_these = {zip_name: txt
 # COMMAND ----------
 
 # Uses... 
-# READ_PATH, PRE_WRITE, MID_WRITE_NAMES, TO_DOWNLOAD, TO_UNZIP
+# MID_WRITE_NAMES, TO_DOWNLOAD, TO_UNZIP
 
 def download_extract_upload(a_file, verbose=1): 
     a_match = re.match(zip_regex, a_file)
@@ -154,7 +159,7 @@ def download_extract_upload(a_file, verbose=1):
         raise "File Name no admite patrón Regex"
     b_file = a_match.group(1)    
     
-    blob_in = f"/{read_path}/{a_file}"
+    blob_in = f"/{paths['prepared']}/{a_file}"
     write_to = mid_write_names[a_file]
     
     try: 
@@ -165,27 +170,24 @@ def download_extract_upload(a_file, verbose=1):
 
         with ZipFile(f"{to_download}", 'r') as _unz:
             _unz.extractall(to_unzip)
-    
+        dbutils.fs.rm(f"file:{to_download}")
+        
         if b_file not in listdir(to_unzip): 
             print(f"\tNo se encuentra archivo esperado: \n\t{b_file}".expandtabs(4))    
             raise "Uncompress Error"
         
         if verbose >= 1: 
-            print(f"\tSubiendo archivo a blob: \n\t{pre_write}/{write_to}".expandtabs(4))
+            print(f"\tSubiendo archivo a blob: \n\t.../{write_to}".expandtabs(4))
         
-        the_blob = blob_container.get_blob_client(f"{pre_write}/{write_to}")
-        
+        the_blob = blob_container.get_blob_client(f".../{write_to}")
         with open(f"{to_unzip}/{b_file}", 'rb') as _f: 
             the_blob.upload_blob(_f)
-    
+        dbutils.fs.rm(f"file:{to_unzip}/{b_file}")
+        
     except Exception as ex: 
         print(str(ex))
         return (a_file, -1)
         
-    else: 
-        dbutils.fs.rm(f"file:{to_download}")
-        dbutils.fs.rm(f"file:{to_unzip}/{at_unzip[0]}")
-    
     return (a_file, 1)
     
 

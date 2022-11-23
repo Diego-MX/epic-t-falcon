@@ -3,22 +3,31 @@
 El código de este repo se ejecuta en el ambiente de Databricks.   
 Utilizamos la nomenclatura `ops-conciliations` para identificar los recursos.  
 Este repo (`transformation-layer`) es parte del análogo `ops-conciliations` de manera 
-que lo utilizamos el nombre por ser más significativo.  
+que utilizamos el nombre del segundo por ser más significativo.  
 
-Entonces utiliza los siguientes recursos:  
-* `ops-conciliations`: un _service principal_ designado a este proyecto
-* `dbks-ops-conciliations`: un _scope_ en Databricks con las claves del principado:  
-  `aad-tenant-id`, `sp-ops-conciliations-subscription`, 
-  `sp-ops-conciliations-client`, `sp-ops-conciliations-secret`, no utilizamos _scope_.  
-* `stlakehylia<env>`: el nombre del _storage container_ que apunta al _datalake_. 
-  Las "carpetas" del datalake que se utilizan son:  
+Entonces utiliza los siguientes recursos: 
+* Crear `dbks-ops-conciliations` un _scope_ en Databricks.   
+
+* Crear `ops-conciliations` un _service principal_ para el proyecto.  
+  Las credenciales se guardan en el _scope_:  
+  `aad-tenant-id`, `sp-ops-conciliations-subscription`, `sp-ops-conciliations-client`, `sp-ops-conciliations-secret`.  
+
+* Acceder al _metastore_ `sqlserver-lakehylia-data-<env>`.  
+  Crear un usuario y guardar credenciales en el _scope_:  
+  `ops-conciliations-metastore-user`, `ops-conciliatons-metastore-pass`.  
+
+* Acceder al contenedor del _datalake_ `stlakehylia<env>`.  
+  Asignar acceso al principado en las carpetas:  
   - `ops/regulatory/card-management/transformation-layer`   
   - `ops/card-management/datasets`   
   - `ops/transactions/spei`   
+
   cada una en (algunos de) los contenedores `raw` 🥩, `bronze` 🥉, `silver` 🥈, `gold` 🥇.  
 
-* ddPara tablas en Databricks,
-  - El metastore 
+* (Reservamos este espacio para el listado de tablas que se crean/utilizan en el _metastore_.)  
+
+
+`Nota:` El link de [Confluence][runbook] es este.  
 
 
 # Descripción  
@@ -46,3 +55,6 @@ Para la entrega del código les pedimos utilizar este formato de repositorio.
     `1 carga datos fuente 2`  
     `2 resumir datos por usuario`   
     `3 programar schedule para los Notebooks (1 y 3 meses)`
+    
+    
+[runbook]: https://bineo.atlassian.net/wiki/spaces/~6282a2fbd9ddcc006e9c3438/pages/1725595654/Conciliaciones+-+runbook

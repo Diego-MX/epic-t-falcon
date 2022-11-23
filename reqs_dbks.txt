@@ -1,0 +1,11 @@
+pandas
+pydantic
+
+# Utilities
+azure-identity
+azure-keyvault-secrets
+azure-storage-blob
+
+
+
+
