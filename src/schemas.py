@@ -1,11 +1,11 @@
 import numpy as np
 import pandas as pd
-from pandas.core.frame import DataFrame
+from pandas.core.frame import DataFrame as pd_DF
 from pyspark.sql import functions as F, types as T
 from typing import List, Dict
 
 
-def colsdf_prepare(a_df: DataFrame) -> DataFrame: 
+def colsdf_prepare(a_df: pd_DF) -> pd_DF: 
     int_cols = ['From', 'Length', 'fmt_len']
     b_df = (a_df
         .astype({an_int: int for an_int in int_cols})
@@ -22,7 +22,7 @@ def colsdf_prepare(a_df: DataFrame) -> DataFrame:
     return b_df
         
     
-def colsdf_2_select(b_df: DataFrame, base_col='value'): 
+def colsdf_2_select(b_df: pd_DF, base_col='value'): 
     # F_NAUGHT as callable placeholder in list. 
     f_naught  = lambda name: None
     f_sgn_dbl = lambda name: (F.col(name).cast(T.DoubleType()) 
@@ -49,9 +49,9 @@ def colsdf_2_select(b_df: DataFrame, base_col='value'):
 
     
 
-def colsdf_2_schema(b_df: DataFrame) -> T.StructType: 
-    # NAUGHT_TYPE as placeholder to match the other indices. 
-    # ... also as callable. 
+def colsdf_2_schema(b_df: pd_DF) -> T.StructType: 
+    # NAUGHT_TYPE placeholder callable to keep other indices in place.  
+    
     naught_type = lambda x: None
     set_types = [naught_type, naught_type, 
         T.DoubleType, T.DateType, T.StringType, T.IntegerType]
@@ -64,7 +64,7 @@ def colsdf_2_schema(b_df: DataFrame) -> T.StructType:
 
 
 
-def len_cols(cols_df: DataFrame) -> int: 
+def len_cols(cols_df: pd_DF) -> int: 
     last_fill = cols_df['aux_fill'].iloc[-1]
     up_to = -1 if last_fill else len(cols_df)
     the_len = cols_df['Length'][:up_to].sum()

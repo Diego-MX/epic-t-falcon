@@ -44,7 +44,7 @@ def fiserv_data(a_df):
 
 specs_file = "refs/catalogs/Data Extracts.xlsx.lnk"
 
-sheets_tables = [('DATPTX01', 'atpt'),  # , ('DAMNAC01', 'damnac') 
+sheets_tables = [('DATPTX01', 'atpt'),  # , ('DAMNAC01', 'damnac')      
     ('DAMBS101', 'dambs'), ('DAMBS201', 'dambs2'), ('DAMBSC01', 'dambsc'),
     ('DAMNA001', 'damna')] 
 table_types = ['detail', 'header', 'trailer']
