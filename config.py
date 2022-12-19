@@ -26,7 +26,7 @@ RESOURCE_SETUP = {
         'scope'   : 'eh-core-banking', 
         'sp_keys' : { # oauth-databricks-qas
             'tenant_id'        : (1, 'aad-tenant-id'), 
-            'subscription_id'  : (1, 'sp-core-events-suscription'), 
+            'subscription_id'  : (1, 'sp-core-events-subscription'), 
             'client_id'        : (1, 'sp-core-events-client'), 
             'client_secret'    : (1, 'sp-core-events-secret')}, 
         'storage' : 'stlakehyliaqas', 
@@ -36,7 +36,7 @@ RESOURCE_SETUP = {
         'scope'   : 'ops-conciliations-stg', 
         'sp_keys' : {
             'tenant_id'        : (1, 'aad-tenant-id'), 
-            'subscription_id'  : (1, 'sp-ops-conciliations-suscription'), 
+            'subscription_id'  : (1, 'sp-ops-conciliations-subscription'), 
             'client_id'        : (1, 'sp-ops-conciliations-client'), 
             'client_secret'    : (1, 'sp-ops-conciliations-secret')
         } 
@@ -45,7 +45,7 @@ RESOURCE_SETUP = {
         'scope'   : 'ops-conciliations-prd', 
         'sp_keys' : {
             'tenant_id'        : (1, 'aad-tenant-id'), 
-            'subscription_id'  : (1, 'sp-ops-conciliations-suscription'), 
+            'subscription_id'  : (1, 'sp-ops-conciliations-subscription'), 
             'client_id'        : (1, 'sp-ops-conciliations-client'), 
             'client_secret'    : (1, 'sp-ops-conciliations-secret')
         } 
@@ -291,8 +291,4 @@ class ConfigEnviron():
             'get-secret': get_secret}            
         return sessioner
     
-    
-    
-        
-        
     
