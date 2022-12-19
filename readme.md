@@ -34,22 +34,27 @@ Entonces utiliza los siguientes recursos:
 
 Para la entrega del código les pedimos utilizar este formato de repositorio.  
 
-1. Este archivo `readme.md` contendrá una descripción general, así como el listado de _notebooks_ que se utilizan en el repo.  
+1. Este archivo `readme.md` contendrá en primer lugar los elementos del _runbook_, así como otras cuestiones tanto funcionales como técnicas 
+para cualquiera que utilice este código.  
 
-2. El archivo `config.py` tiene los parámetros que se utilizan, desde rutas de archivo, nombres de llaves de acceso, u otros parámetros modificables.   
+
+2. El archivo `config.py` tiene los parámetros que se utilizan, desde rutas de archivo, 
+  nombres de llaves de acceso, u otros parámetros modificables.   
+  Las variables que se deben configurar externamente se enlistan además en este `readme.md`; 
+  y también incluimos algunas variables propias del proyecto.  
   Se puede importar en otros _notebooks_ y _scripts_ de Python tal cual:  
   ```  
   from config import DATALAKE_SETUP  
   ```  
-  Si utilizan código en otro lenguaje, platiquemos opciones para modificarlo.  
+  Si se utiliza código en otro lenguaje, favor de incluir en los requerimientos. 
 
 3. Incluimos también la carpeta de `src` para guardar diferentes tipos de funciones.  
   Incluye el archivo `__init__.py` para importarlo como módulo.  
   
 4. La carpeta de _notebooks_ contiene los mismos con el propósito de ejecutarse como _jobs_.   
-  Utilicemos la siguiente nomenclatura:  
+  Utiliza(cemos) la siguiente nomenclatura:  
   - Si el archivo es experimental, iniciar el nombre del _notebook_ con las iniciales del autor:   
-    Ejemplo: `dvp revisar conexión sftp`  
+    Ejemplo: `dv revisar conexión sftp`  
   - Si el archivo está listo para ejecutarse regularmente, llamar con un índice entero de orden de ejecución:  
     `1 Extract_file carga archivos fuente a tablas delta en zona bronze`  
     `1 carga datos fuente 2`  
