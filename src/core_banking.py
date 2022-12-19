@@ -1,31 +1,36 @@
 # Diego Villamil, EPIC
 # CDMX, 4 de noviembre de 2021
 
-import base64
 from datetime import datetime as dt, timedelta as delta, date
 from httpx import AsyncClient, Auth as AuthX
-from itertools import product
-from json import dumps
+from itertools import groupby
+from json import dumps, decoder
+from math import ceil
 import pandas as pd
 from pandas.core import series, frame 
 import requests
 from requests import auth, exceptions, Session
-
+from typing import Union
+from pytz import timezone
 
 try: 
     from delta.tables import DeltaTable
 except ImportError: 
     DeltaTable = None
 try: 
-    from pyspark.sql import types as T
+    from pyspark.sql import types as T, dataframe as spk_df
 except ImportError:
-    types = None
+    spk_df, T = None
+try: 
+    import xmltodict
+except ImportError:
+    xmltodict = None
+    
+from src.core_models import Fee, FeeSet
+from src.utilities import encode64, dict_minus
 
-from src.core_models import Fee, FeeSetRequest
-   
+API_LIMIT = 500
 
-encode64 = (lambda a_str: 
-    base64.b64encode(a_str.encode('ascii')).decode('ascii'))
 
 
 def str_error(an_error): 
@@ -97,20 +102,22 @@ class BearerAuth2(auth.AuthBase, AuthX):
 class SAPSession(Session): 
 # INIT from CONFIG.CONFIGENVIRON()
     def __init__(self, core_obj, set_token=True): 
-        std_headers = {
-            'Content-Type' : "application/json",
-            'Accept-Encoding' : "gzip, deflate",
-            'format': 'json'}
-        
         super().__init__()
         self.config     = core_obj['config']
         self.call_dict  = core_obj['call-dict']
         self.get_secret = core_obj['get-secret']
-        self.headers.update(std_headers)
+        self.base_url   = core_obj['config']['main']['url']
+        self.headers.update(self.std_headers)
         self.set_token()
         self.set_status_hook()
-
-    
+        
+    # Tech Specs
+    std_headers = {
+            'Accept-Encoding' : 'gzip, deflate',
+            'Content-Type'    : 'application/json',
+            'Accept'   : 'application/json',
+            'Format'   : 'json'}
+        
     api_calls = {
         'events-set' : {
             'persons'      : "v15/bp/EventSet", 
@@ -125,38 +132,93 @@ class SAPSession(Session):
         'fees-apply'       : "v1/feemass/FeeSet",
         'api-defs'         : "v1/oapi/oAPIDefinitionSet" } 
     
+    # Business Specs
+    commission_labels = {
+        'atm': (600405, 'ops-commissions-atm-001')}
     
-    def txns_commissions(self, accounts_df, cmsn_type='atm', **kwargs): 
-        the_types = {
-            'atm': (600405, 'ops-commissions-atm-001')}
-
-        if not isinstance(accounts_df, frame.DataFrame):  
-            raise Exception('ACCOUNTS_DF must be a DataFrame (Pandas).')
+    
+    def call_txns_commissions(self, 
+                accounts_df:Union[frame.DataFrame, spk_df.DataFrame], 
+                cmsn_key='atm', **kwargs): 
+        
+        cmsn_id, cmsn_name = self.commission_labels[cmsn_key]
+        
+        by_k = kwargs.get('how-many', API_LIMIT)
+        date_str = date.now(tz=timezone('America/Mexico_City')).strftime('%Y-%m-%d')
+        
+        if isinstance(accounts_df, frame.DataFrame):
+            row_itr = accounts_df.iterrows()
+            len_df = len(accounts_df)
             
-        # SAP calls them fees; we, commissions.
-        commissions_ls = [Fee(AccountID=row['atpt_acct'], TypeCode=kwargs['TypeCode'])
-                for _, row in accounts_df.iterrows()]
+        elif isinstance(accounts_df, spk_df.DataFrame): 
+            row_itr = enumerate(accounts_df.rdd.toLocalIterator())
+            len_df = accounts_df.count()
         
-        date_str = date.today().strftime('%Y-%m-%d')
-        commission_requesters = {
-            'ProcessDate': date_str, 
-            'ExternalID' : the_types[cmsn_type][1], 
-            'FeeDetail'  : commissions_ls}
+        iter_key = lambda ii_row: ii_row[0]//by_k
+        n_grps = ceil(len_df/by_k)
         
-        feeset_obj = FeeSetRequest(**commission_requesters)
-        posters = {
-            'url' : f"{self.config['main']['url']}/{self.api_calls['fees-apply']}", 
-            'data': feeset_obj.json()}
-        
-        try: 
-            f_response = self.post(**posters)
-            f_response.raise_for_status()
-        except exceptions.HTTPError as err:
-            self.set_token()
-            f_response = self.post(**posters)
-        
-        return f_response
+        responses = []
+        for kk, sub_itr in groupby(row_itr, iter_key): 
+            print(f'Calling group {kk} of {n_grps}.')
+            fees_set   = [Fee(**{
+                'AccountID'  : row['atpt_acct'], 
+                'TypeCode'   : cmsn_id, 
+                'PostingDate': date_str}) for row in sub_itr]
+            feeset_obj = FeeSet(**{
+                'ProcessDate': date_str, 
+                'ExternalID' : cmsn_name, 
+                'FeeDetail'  : fees_set})
+            posters = {
+                    'url' : f"{self.base_url}/{self.api_calls['fees-apply']}", 
+                    'data': feeset_obj.json()}
+            try: 
+                the_resp = self.post(**posters)
+            except Exception as ex: 
+                the_resp = {'Error': feeset_obj}
+            responses.append(the_resp)            
+        return responses
     
+    
+    def call_person_set(self, params={}, **kwargs): 
+        # Remove Keys from response list. 
+        output   = kwargs.get('output',  'DataFrame')
+        how_many = kwargs.get('how_many', API_LIMIT)
+        rm_keys  = ['__metadata', 'Roles', 'TaxNumbers', 'Relation', 'Partner', 'Correspondence']
+        
+        params_0 = {'$top': how_many, '$skip': 0}
+        params_0.update(params)
+
+        post_persons   = []
+        post_responses = []
+        while True:
+            prsns_resp = self.get(f"{self.base_url}/{self.api_calls['person-set']}", params=params_0)
+            post_responses.append(prsns_resp)
+            if output == 'Response': 
+                return 
+            
+            prsns_ls = self.hook_d_results(prsns_resp)
+            post_persons.extend(prsns_ls)
+            
+            params_0['$skip'] += len(prsns_ls)
+            if (len(prsns_ls) < how_many) : 
+                break
+        
+        # Procesamiento de Output.  
+        if output == 'Response': 
+            return prsns_resp
+        
+        elif output == 'List': 
+            return post_persons
+        
+        elif output == 'DataFrame': 
+            persons_mod = [dict_minus(a_person, rm_keys) for a_person in post_persons]
+            persons_df = (pd.DataFrame(persons_mod)
+                .assign(ID = lambda df: df.ID.str.pad(10, 'left', '0')))
+            return persons_df
+        
+        else: 
+            raise Exception(f'Output {output} is not valid.')
+        
     
     def set_token(self, verbose=0): 
         posters = {
@@ -164,8 +226,10 @@ class SAPSession(Session):
             'data': self.call_dict(self.config['auth']['data']), 
             'auth': auth.HTTPBasicAuth(**self.call_dict(self.config['main']['access'])), 
             'headers': {'Content-Type': "application/x-www-form-urlencoded"}
+        }
         
-        # This post is independent of the session itself.  
+        # This POST is independent of the session itself; 
+        # hence called from REQUESTS, instead of SELF. 
         the_resp = requests.post(**posters)
         
         if verbose > 0: 
@@ -182,9 +246,9 @@ class SAPSession(Session):
         
     def set_status_hook(self, auth_tries=3): 
         def status_hook(response, *args, **kwargs): 
-            response_1 = response.copy()
-            for _ in range(auth_tries): 
-                if   response_1.status_code == 200: 
+            response_1 = response
+            for ii in range(auth_tries): 
+                if response_1.status_code == 200: 
                     break
                 elif response_1.status_code == 401: 
                     self.set_token()
@@ -195,9 +259,34 @@ class SAPSession(Session):
             return response_1
         
         self.hooks['response'].append(status_hook)
-                
     
     
+    def hook_d_results(self, response): 
+        hook_allowed_types = ['application/json', 'application/atom+xml']
+        
+        the_type = response.headers['Content-Type']
+        if 'application/json' in the_type: 
+            the_json = response.json()
+            the_results = the_json['d']['results']
+        elif 'application/atom+xml' in the_type: 
+            the_results = self._xml_results(response.text)
+        else: 
+            raise Exception(f"Couldn't extract results from response with content type '{the_type}'.")
+            
+        return the_results
+        
+   
+    def _xml_results(self, xml_text): 
+        get_entry_ds = (lambda entry_dict: 
+            {re.sub(r'^d\:', '', k_p): v_p 
+            for k_p, v_p in entry_dict.items() if k_p.startswith('d:')})
+        
+        entry_ls = xmltodict.parse(xml_text)['feed']['entry']
+        entry_props = [entry['content']['m:properties'] for entry in entry_ls]
+        entry_rslts = [get_entry_ds(prop) for prop in entry_props]
+        return entry_rslts
+
+
     
 
 

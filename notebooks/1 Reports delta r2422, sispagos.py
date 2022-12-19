@@ -28,7 +28,7 @@ reload(config)
 from datetime import datetime as dt, date, timedelta as delta 
 from dateutil.relativedelta import relativedelta as r_delta
 import io
-from math import floor
+from math import ceil
 import pandas as pd
 from pandas.core import frame, series
 from pyspark.sql import functions as F, types as T
@@ -71,7 +71,7 @@ def floor_date(a_dt: date, period='month'):
     if period == 'month': 
         a_floor = a_dt.replace(day=1)
     if period == 'quarter': 
-        f_month = 3*floor((a_dt.month - 1)/3)+1
+        f_month = 3*ceil(a_dt.month/3)-2
         a_floor = a_dt.replace(day=1, month=f_month)
     return a_floor
 
@@ -79,7 +79,8 @@ def next_whole_period(a_dt: date, period='month'):
     # If A_DATE is starting the calendar period, it returns that date, 
     #     if not, returns the beginning of the next period.  
     period_months = {'month': 1, 'quarter': 3}
-    the_date = floor_date(a_dt - delta(1), period) + r_delta(months=period_months[period])
+    the_date = (floor_date(a_dt - delta(1), period) 
+        + r_delta(months=period_months[period]))
     return the_date
 
 def past_whole_period(a_dt: date, period='month', to_return='date'): 
@@ -92,14 +93,15 @@ def past_whole_period(a_dt: date, period='month', to_return='date'):
 
 def file_exists(a_path): 
     if a_path[:5] == "/dbfs":
+    # In  Databricks
         return os.path.exists(path)
-    else:
-        try:
-            dbutils.fs.ls(path)
-            return True
-        except: 
-            return False
-                
+    # Out Databricks
+    try:
+        dbutils.fs.ls(path)
+        return True
+    except: 
+        return False
+
 def write_to_datalake(a_df: Union[spk_frame.DataFrame, frame.DataFrame, series.Series], 
         a_path, container=None, overwrite=False): 
     
@@ -147,8 +149,7 @@ def write_to_datalake(a_df: Union[spk_frame.DataFrame, frame.DataFrame, series.S
 cms_tables = {
     'clients' : 'din_clients.slv_ops_cms_damna_stm', 
     'txns'    : 'farore_transactions.slv_ops_cms_atptx_stm', 
-    'accounts': 'nayru_accounts.slv_ops_cms_dambs_stm', 
-}
+    'accounts': 'nayru_accounts.slv_ops_cms_dambs_stm', }
 
 accounts_range = (spark.read.format('delta')
     .load(accounts_loc)

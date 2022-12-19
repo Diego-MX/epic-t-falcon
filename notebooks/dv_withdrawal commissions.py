@@ -1,49 +1,84 @@
 # Databricks notebook source
 # MAGIC %md 
-# MAGIC # Introduction
+# MAGIC # Introducción
 # MAGIC 
-# MAGIC This notebook is to be run as a Job for Withdrawal Commission Management:  
-# MAGIC 1. We read transactions from ATPT (Card Management System - Fiserv).  
-# MAGIC 2. Identify those corresponding to ATM Withdrawals, and their commission status.  
-# MAGIC 3. Comparing to existing commissions, apply the corresponding fees.  
-# MAGIC 4. Update withdrawal tables altogether.  
+# MAGIC Este _notebook_ se ejecuta como _job_ llamado `Withdrawal Commission Management`.  
+# MAGIC La función principal / inicial / única-(dic '22) es para el cobro de manejo de comisiones.  
+# MAGIC Consta de los siguientes secciones:  
+# MAGIC &nbsp; 0. Leer las transacciones de ATPT, de acuerdo con el sistema de gestión de tarjetas Fiserv.  
+# MAGIC 1. Identificar las correspondientes a retiros de cajero, y los estatus de comisiones.  
+# MAGIC 2. Comparar con las comisiones existentes 
+# MAGIC 3. Aplicar las tarifas correspondientes.  
+# MAGIC 4. Actualizar la tabla de comisiones correspondiente.  
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Ingredients
+# MAGIC ### Explicación y puntos de fricción  
+# MAGIC 
+# MAGIC - La tabla de transacciones ATPT se conforma de archivos enviados diariamente.   
+# MAGIC   Se asume que cada todas las transacciones se almacenan en los archivos, y que cada una pertenece a sólo un archivo.  
+# MAGIC   ... peeeero eso no se ha verificado.  
+# MAGIC 
+# MAGIC - La tabla de comisiones (registradas) se crea a partir de las respuestas de la API de SAP.  
+# MAGIC   Estas no se han completado, por lo que sigue en standby.   
+# MAGIC   
+# MAGIC - La API de comisiones requiere el número de cuenta en formato SAP, la tabla de transacciones lo tiene en formato Fiserv.  
+# MAGIC   La traducción de una a la otra se hace mediante la tabla `dambs` de Fiserv, pero no se ha comprobado.  
+# MAGIC   
+# MAGIC - Además del número de cuenta, la traducción de una entrada en `atpt` y luego como retiro de ATM, utiliza la clase de objetos (Py) `core_models.Fee` y `core_models.FeeSet`.  Se definieron simplemente a partir de la API, pero no han pasado las pruebas de completez.   
+# MAGIC 
+# MAGIC Por el momento, eso es todo.  
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC # Coding
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ## 0. Ingredients
 # MAGIC Prepare libraries, functions and variables.  
-# MAGIC A few (or one) parameters, are to be set on the functional side.  
+# MAGIC Some parameters, are to be set on the functional side.  
 # MAGIC ... 
 
 # COMMAND ----------
 
-# MAGIC %pip install -r ../reqs_dbks.txt
+# Al ejecutarse como _notebook_, instalamos las librerías necesarias.  
+%pip install -r ../reqs_dbks.txt
 
 # COMMAND ----------
 
-TIMEFRAME = 90    # Max Days to charge commissions. 
-API_LIMIT = 100   # Max number of commissions to apply at once. 
+# Se definen algunas constantes de negocio.  
+
+COMSNS_FRAME = 15    # Max Days to charge commissions. 
+COMSNS_APPLY = 100   # Max number of commissions to apply at once. 
+PAGE_MAX     = 500   # Max number of records (eg. Person-Set) to request at once. 
+
 
 # COMMAND ----------
+
+# Para desbichar el código, este bloque que actualiza los módulos de importación/modificación.  
+# El equivalente a veces se encuentra como: 
+# %load_ext autoreload
+# %autoreload 2
 
 from importlib import reload
-from src import core_banking
-import config
-reload(core_banking)
-reload(config)
+from src import core_banking; reload(core_banking)
+import config; reload(config)
 
 
 # COMMAND ----------
+
+# Importamos los módulos; y definir funciones y variables más específicas. 
 
 from collections import OrderedDict
 from datetime import datetime as dt, date, timedelta as delta
 from delta.tables import DeltaTable
-
+from functools import reduce
 import pandas as pd
 from pandas.core.frame import DataFrame as pd_DataFame 
-import re
-
 from pyspark.sql import functions as F, types as T
 from pyspark.sql.dataframe import DataFrame as spk_DataFrame
 from pyspark.sql.window import Window as W
@@ -51,8 +86,7 @@ from pyspark.sql.window import Window as W
 import src.schemas as src_spk
 from src.core_banking import SAPSession
 from config import (ConfigEnviron, 
-    ENV, SERVER,                     
-    RESOURCE_SETUP, CORE_ENV, 
+    ENV, SERVER, RESOURCE_SETUP, CORE_ENV, 
     DATALAKE_PATHS as paths, 
     DELTA_TABLES as delta_keys)
 
@@ -63,19 +97,18 @@ app_environ.sparktransfer_credential()
 at_datasets    = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['datasets']}"  
 at_commissions = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['commissions']}"  
 atptx_loc      = f"{at_datasets}/atpt/delta"
+dambs_loc      = f"{at_datasets}/dambs/delta"
 
 
-def df_withcolumns(a_df: spk_DataFrame, cols_dict: dict) -> spk_DataFrame: 
-    b_df = a_df
-    for c_name, c_def in cols_dict.items(): 
-        b_df = b_df.withColumn(c_name, c_def)
-    return b_df
+def spk_withcolumns(a_df: spk_DataFrame, cols_dict: dict) -> spk_DataFrame: 
+    func = lambda x_df, col_item: x_df.withColumn(col_item[0], col_item[1])
+    return reduce(func, cols_dict.items(), a_df)
 
 
 def pd_print(a_df: pd_DataFame, width=180): 
-    options = ['display.max_rows', None, 
+    options = ['display.max_rows',    None, 
                'display.max_columns', None, 
-               'display.width', width]
+               'display.width',       width]
     with pd.option_context(*options):
         print(a_df)
 
@@ -83,13 +116,14 @@ def pd_print(a_df: pd_DataFame, width=180):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Withdrawals Table
+# MAGIC 
+# MAGIC ## 1. Withdrawals Table
 # MAGIC Starting from the transactions universe, consider the ones that are withdrawals.  
 # MAGIC Prepare the corresponging attributes to manage them.  
 
 # COMMAND ----------
 
-experimental = True
+experimental = False
 if experimental: 
     wdraw_txns_0 = (spark.read.format('delta')
         .load(atptx_loc)
@@ -99,6 +133,28 @@ if experimental:
     display(wdraw_txns_0)
 
 # COMMAND ----------
+
+# Datos correspondientes a las cuentas/accounts/dambs complementan la información de las transacciones. 
+
+wdw_account =  W.partitionBy('ambs_acct').orderBy(F.col('file_date').desc())
+dambs_cols = ['file_date', 'b_account_num', 'b_rank_acct', 'b_sap_savings', 'ambs_sav_rtng_nbr',  'ambs_sav_acct_nbr']
+
+dambs_ref = (spark.read.format('delta')
+    .load(dambs_loc)
+    .withColumn('b_account_num', F.col('ambs_acct'))
+    .withColumn('b_rank_acct', F.row_number().over(wdw_account))
+    .withColumn('b_sap_savings', F.concat_ws('-', 
+        F.col('ambs_sav_acct_nbr'), F.col('ambs_sav_rtng_nbr').cast(T.IntegerType()), F.lit('MX')))
+    .filter(F.col('b_rank_acct') == 1)
+    .select(*dambs_cols))
+
+display(dambs_ref)
+
+# COMMAND ----------
+
+# Preparamos las transacciones que corresponden a los retiros (withdrawals/wdraw).  
+
+# Alguna información complementaria: 
 
 # b_wdraw_acquirer_code:  {110072: Banorte, ...}
 # b_wdraw_commission_status: {
@@ -114,15 +170,16 @@ if experimental:
 #    (596[02456789], 7995): high-risk-merchant}
 
 wdw_account =  W.partitionBy('atpt_acct', 'b_wdraw_month').orderBy('atpt_mt_eff_date')
-and_inhouse = (W.partitionBy('atpt_acct', 'b_wdraw_month', 'b_wdraw_is_inhouse')
+wdw_inhouse = (W.partitionBy('atpt_acct', 'b_wdraw_month', 'b_wdraw_is_inhouse')
     .orderBy('atpt_mt_eff_date'))
 
 wdraw_withcols = OrderedDict({
+    'b_account_num'         : F.col('atpt_acct'), 
     'b_wdraw_month'         : F.date_trunc('month', F.col('atpt_mt_eff_date')).cast(T.DateType()), 
     'b_wdraw_acquirer_code' : F.substring(F.col('atpt_mt_interchg_ref'), 2, 6), 
     'b_wdraw_is_inhouse'    : F.col('b_wdraw_acquirer_code') == 11072,
     'b_wdraw_rk_overall'    : F.row_number().over(wdw_account), 
-    'b_wdraw_rk_inhouse'    : F.when(F.col('b_wdraw_is_inhouse'), F.row_number().over(and_inhouse)).otherwise(-1), 
+    'b_wdraw_rk_inhouse'    : F.when(F.col('b_wdraw_is_inhouse'), F.row_number().over(wdw_inhouse)).otherwise(-1), 
     'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') | (F.col('b_wdraw_rk_inhouse') > 3),  
     'b_wdraw_commission_status': F.when(~F.col('b_wdraw_is_commissionable'), -1)
                 .when(F.col('atpt_mt_posting_date').isNull(), -2).otherwise(0)})
@@ -137,34 +194,32 @@ wdraw_txns_0 = (spark.read.format('delta')
     .filter(F.col('atpt_mt_category_code').isin([6010, 6011])))
 
 # This is potentially a big Set. 
-wdraw_txns = (df_withcolumns(wdraw_txns_0, wdraw_withcols)
+wdraw_txns = (spk_withcolumns(wdraw_txns_0, wdraw_withcols)
     .select(wdraw_cols))
 
 display(wdraw_txns)
 
-
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Commissions
-
-# COMMAND ----------
-
-# MAGIC %md 
+# MAGIC ## 2. Commissions
 # MAGIC From `withdraw_txns` (current) filter those that are subject to a transaction fee.  
 # MAGIC Also consider the previously processed ones in `withdrawals`, so that they aren't charged double.  
-# MAGIC Create a SAP-session object to apply the transactions, and then merge back to the `withdrawals`.  
 
 # COMMAND ----------
 
-reset_commissions = False
+# Restablecer la tabla de comisiones en caso de experimentación.  
+
+reset_commissions = True
 if reset_commissions: 
     dbutils.fs.rm(at_commissions, True)
 
 # COMMAND ----------
 
+# Obtener las comisiones cobrables.  
+
 # Date frame to consider commissions:  15 days
-since_date = date.today() - delta(COMMISSION_FRAME)
+since_date = date.today() - delta(COMSNS_FRAME)
 
 # Since there is nothing to compare against on the first date,  
 # just write it down and check that logic is idempotent. 
@@ -179,7 +234,7 @@ join_select = [F.coalesce(wdraw_txns[a_col], miscommissions[a_col]).alias(a_col)
     for a_col in miscommissions.columns 
     if a_col not in ['atpt_mt_interchg_ref', 'atpt_mt_ref_nbr', 'status_store']]
 
-commissionable = (wdraw_txns
+pre_commissionable = (wdraw_txns
     .filter(F.col('b_wdraw_commission_status') == 0)
     .withColumnRenamed('b_wdraw_commission_status', 'status_base')
     .join(miscommissions, how='outer', 
@@ -187,7 +242,17 @@ commissionable = (wdraw_txns
     .filter(wdraw_txns['atpt_mt_posting_date'] >= since_date)
     .select(*join_select, 'status_store', 'status_base'))
    
-commissionable.select(['status_store', 'status_base']).summary('count').show()
+commissionable = (pre_commissionable
+    .join(dambs_ref, on='b_account_num', how='left'))
+    
+cmsns_summary = pre_commissionable.select(['status_store', 'status_base']).summary('count')
+cmsns_summary.show()
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ## 3. Fees application
+# MAGIC Create a SAP-session object to apply the transactions, and then call the corresponding API.  
 
 # COMMAND ----------
 
@@ -197,67 +262,62 @@ core_session = SAPSession(core_starter)
 
 # COMMAND ----------
 
-
-commissionable_pd = commissionable.toPandas()
-
-for _, cmsn in commissionable_pd.iterrows(): 
-    pass
-
-_, cmsn = list(commissionable_pd.iterrows())[2]
-cmsn
+persons = core_session.call_person_set({'how_many':50})
+pd_print(persons)
 
 # COMMAND ----------
 
-self = core_session
+responses = core_session.call_txns_commissions(commissionable, 'atm', **{'how-many': 20})
 
-from src.core_models import Fee, FeeSetRequest
+
+# COMMAND ----------
+
+# Debugging
+self, accounts_df, cmsn_key, kwargs = core_session, commissionable, 'atm', {'how-many': 5}
+
 from datetime import date
-from json import loads
+from itertools import groupby
+from math import ceil
+from pandas.core import frame
+from pyspark.sql import dataframe as spk_df
+from pytz import timezone
+from src.core_models import Fee, FeeSet
 
-atm_code    = '600405'
-external_id = 'ops-commissions-atm-001'
-the_date    = date.today().strftime('%Y-%m-%d')
+API_LIMIT = 200
+cmsn_id, cmsn_name = self.commission_labels[cmsn_key]
 
-the_commissions = [Fee(AccountID=row['atpt_acct'], TypeCode=atm_code) 
-    for _, row in commissionable_pd.iterrows()]
+by_k = kwargs.get('how-many', API_LIMIT)
+date_str = date.today().strftime('%Y-%m-%d')
 
-fees_data = FeeSetRequest(ExternalID=external_id, ProcessDate=the_date, FeeDetail=the_commissions)
+if isinstance(accounts_df, frame.DataFrame):
+    row_itr = accounts_df.iterrows()
+    len_df = len(accounts_df)
 
-params = {'url': f"{self.config['main']['url']}/{self.api_calls['fees-apply']}", 
-          'data': fees_data.json()}
-        
-a_response = self.post(f"{self.config['main']['url']}/{self.api_calls['fees-apply']}", 
-                      data = loads(fees_data.json()))
+elif isinstance(accounts_df, spk_df.DataFrame): 
+    row_itr = enumerate(accounts_df.rdd.toLocalIterator())
+    len_df = accounts_df.count()
 
+iter_key = lambda ii_row: ii_row[0]//by_k
+n_grps = ceil(len_df/by_k)
 
-#fees_data
-loads(a_response.text)
-
-# COMMAND ----------
-
-self = core_session
-
-#from src.core_models import Fee, FeeSetRequest
-from datetime import date
-import requests
-
-some_params = {'$top': 100, '$skip': 0}
-        
-#a_response = self.post(**params)
-
-r_response = requests.get(url=f"{self.config['main']['url']}/{self.api_calls['person-set']}", params=some_params, auth=core_session.auth, headers={'Content-Type': 'application/json', 'format': 'json'})
-s_response = core_session.get(url=f"{self.config['main']['url']}/{self.api_calls['person-set']}", params=some_params)
-
-# COMMAND ----------
-
-print(f"Request Request:\n{r_response.request.headers}\n\nRequest Reponse:\n{r_response.headers}\n")
-print(f"Session Request:\n{s_response.request.headers}\n\nSession Reponse:\n{s_response.headers}")
-
-# COMMAND ----------
-
-r_response.raise_for_status()
-
+responses = []
+for kk, sub_itr in groupby(row_itr, iter_key): 
+    
+    print(f'Calling group {kk} of {n_grps}.')
+    fees_set   = [Fee(**{
+        'AccountID'  : row['atpt_acct'], 
+        'TypeCode'   : cmsn_id, 
+        'PostingDate': date_str}) for _, row in sub_itr]
+    feeset_obj = FeeSet(**{
+        'ProcessDate': date_str, 
+        'ExternalID' : cmsn_name, 
+        'FeeDetail'  : fees_set})
+    posters = {
+        'url' : f"{self.base_url}/{self.api_calls['fees-apply']}", 
+        'data': feeset_obj.json(exclude_unset=True)}
+    the_resp = self.post(**posters)
 
 # COMMAND ----------
 
-core_session.hooks
+# MAGIC %md
+# MAGIC ## 4. Log table
