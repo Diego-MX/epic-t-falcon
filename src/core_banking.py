@@ -138,7 +138,7 @@ class SAPSession(Session):
     
     
     def call_txns_commissions(self, 
-                accounts_df:Union[frame.DataFrame, spk_df.DataFrame], 
+                accounts_df: Union[frame.DataFrame, spk_df.DataFrame], 
                 cmsn_key='atm', **kwargs): 
         
         cmsn_id, cmsn_name = self.commission_labels[cmsn_key]
@@ -148,16 +148,17 @@ class SAPSession(Session):
         
         if isinstance(accounts_df, frame.DataFrame):
             row_itr = accounts_df.iterrows()
-            len_df = len(accounts_df)
+            len_df  = len(accounts_df)
             
         elif isinstance(accounts_df, spk_df.DataFrame): 
             row_itr = enumerate(accounts_df.rdd.toLocalIterator())
-            len_df = accounts_df.count()
+            len_df  = accounts_df.count()
         
         iter_key = lambda ii_row: ii_row[0]//by_k
-        n_grps = ceil(len_df/by_k)
+        n_grps   = ceil(len_df/by_k)
         
         responses = []
+        # Usamos la Response completa, pero seguramente querremos algo más estructurado. 
         for kk, sub_itr in groupby(row_itr, iter_key): 
             print(f'Calling group {kk} of {n_grps}.')
             fees_set   = [Fee(**{
