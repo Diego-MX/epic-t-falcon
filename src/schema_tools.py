@@ -1,7 +1,9 @@
+from functools import reduce
 import numpy as np
 import pandas as pd
 from pandas.core.frame import DataFrame as pd_DF
 from pyspark.sql import functions as F, types as T
+from pyspark.sql.dataframe import DataFrame as spk_DF
 from typing import List, Dict
 
 
@@ -69,4 +71,11 @@ def len_cols(cols_df: pd_DF) -> int:
     up_to = -1 if last_fill else len(cols_df)
     the_len = cols_df['Length'][:up_to].sum()
     return int(the_len)
+
+
+
+def with_columns(a_df: spk_DF, cols_dict: dict) -> spk_DF: 
+    func = lambda x_df, col_item: x_df.withColumn(col_item[0], col_item[1])
+    b_df = reduce(func, cols_dict.items(), a_df)
+    return b_df
     

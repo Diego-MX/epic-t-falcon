@@ -87,14 +87,17 @@ CORE_SETUP = {
 # Env-independent Usage Variables. 
 
 DATALAKE_PATHS = {
-    'spei'     : "ops/transactions/spei", 
-    'blob'     : "https://{}.blob.core.windows.net/",   # STORAGE
-    'abfss'    : "abfss://{}@{}.dfs.core.windows.net",  # CONTAINER(bronze|silver|gold), STORAGE
-    'from-cms' : "ops/regulatory/card-management/transformation-layer", 
-    'prepared' : "ops/regulatory/card-management/transformation-layer/unzipped-ready", 
-    'reports'  : "ops/regulatory/transformation-layer",
-    'datasets' : "ops/card-management/datasets",
-    'commissions': "ops/account-management/commissions",
+    'blob'    : "https://{}.blob.core.windows.net/",   # STORAGE
+    'abfss'   : "abfss://{}@{}.dfs.core.windows.net",  # CONTAINER(bronze|silver|gold), STORAGE
+    'btp'          : "ops/fraude/bronze/btp", 
+    'spei'         : "ops/transactions/spei", 
+    'spei2'        : "ops/fraude/bronze/spei", 
+    'from-cms'     : "ops/regulatory/card-management/transformation-layer", 
+    'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready", 
+    'reports'      : "ops/regulatory/transformation-layer",
+    'datasets'     : "ops/card-management/datasets",
+    'commissions'  : "ops/account-management/commissions",
+    'conciliations': "ops/core-banking/conciliations"
 }
 
 DELTA_TABLES = {

@@ -2,10 +2,10 @@
 # MAGIC %md 
 # MAGIC # Introducción
 # MAGIC 
-# MAGIC Este _notebook_ se ejecuta como _job_ llamado `Withdrawal Commission Management`.  
-# MAGIC La función principal / inicial / única-(dic '22) es para el cobro de manejo de comisiones.  
+# MAGIC Este _notebook_ es para ejecutarse como _job_ de manejo de comisiones (de retiros).  
+# MAGIC Potencialmente podrá gestionar retiros en general, u otras comisiones.  
 # MAGIC Consta de los siguientes secciones:  
-# MAGIC &nbsp; 0. Leer las transacciones de ATPT, de acuerdo con el sistema de gestión de tarjetas Fiserv.  
+# MAGIC &nbsp; 0. Leer las transacciones de ATPT de acuerdo con el sistema de tarjetas Fiserv.  
 # MAGIC 1. Identificar las correspondientes a retiros de cajero, y los estatus de comisiones.  
 # MAGIC 2. Comparar con las comisiones existentes 
 # MAGIC 3. Aplicar las tarifas correspondientes.  
@@ -21,14 +21,22 @@
 # MAGIC   ... peeeero eso no se ha verificado.  
 # MAGIC 
 # MAGIC - La tabla de comisiones (registradas) se crea a partir de las respuestas de la API de SAP.  
-# MAGIC   Estas no se han completado, por lo que sigue en standby.   
+# MAGIC   Estas no se han completado, por lo que sigue en _standby_.   
 # MAGIC   
 # MAGIC - La API de comisiones requiere el número de cuenta en formato SAP, la tabla de transacciones lo tiene en formato Fiserv.  
-# MAGIC   La traducción de una a la otra se hace mediante la tabla `dambs` de Fiserv, pero no se ha comprobado.  
+# MAGIC   La traducción de una a la otra se hace mediante la tabla `dambs` de Fiserv, tiene muchas transacciones incompletas.  
 # MAGIC   
-# MAGIC - Además del número de cuenta, la traducción de una entrada en `atpt` y luego como retiro de ATM, utiliza la clase de objetos (Py) `core_models.Fee` y `core_models.FeeSet`.  Se definieron simplemente a partir de la API, pero no han pasado las pruebas de completez.   
+# MAGIC - Además del número de cuenta, la traducción de una entrada en `atpt` y luego como retiro de ATM, utiliza la clase de objetos tipo Python `core_models.Fee` y `core_models.FeeSet`.  
+# MAGIC   Se definieron simplemente a partir de la API, pero aún requieren de funcionalidad robusta.  
+# MAGIC   El _swagger_ correspondiente se puede acceder [desde fiori][fiori] o [directo en código JSON][json].  
+# MAGIC   Para la segunda referencia se puede utilizar [este visualizador en la web][web-editor], o con herramientas de VS-Code. 
+# MAGIC   
 # MAGIC 
 # MAGIC Por el momento, eso es todo.  
+# MAGIC 
+# MAGIC [json]: https://apidev.apimanagement.us21.hana.ondemand.com/s4b/v1/oapi/oAPIDefinitionSet('000D3A57CECB1EED869D37419484D2F90002610')/$value
+# MAGIC [fiori]: https://qas-c4b-bdp.launchpad.cfapps.us21.hana.ondemand.com/site/c4b#C4BOpenAPIDirectory-Display?sap-ui-app-id-hint=saas_approuter_c4b.openAPI.baobcoapi00&/APIServiceSet/000D3A57CECB1EED869D37419484D2F90002610
+# MAGIC [web-editor]: https://editor.swagger.io/
 
 # COMMAND ----------
 
@@ -50,7 +58,7 @@
 
 # COMMAND ----------
 
-# Se definen algunas constantes de negocio.  
+# Algunas constantes de negocio.  
 
 COMSNS_FRAME = 15    # Max Days to charge commissions. 
 COMSNS_APPLY = 100   # Max number of commissions to apply at once. 
@@ -60,12 +68,13 @@ PAGE_MAX     = 500   # Max number of records (eg. Person-Set) to request at once
 # COMMAND ----------
 
 # Para desbichar el código, este bloque que actualiza los módulos de importación/modificación.  
-# El equivalente a veces se encuentra como: 
-# %load_ext autoreload
-# %autoreload 2
+# A veces también se encuentra como: 
+#>> %load_ext autoreload
+#>> %autoreload 2
 
 from importlib import reload
 from src import core_banking; reload(core_banking)
+from src import schema_tools; reload(schema_tools)
 import config; reload(config)
 
 
@@ -80,10 +89,9 @@ from functools import reduce
 import pandas as pd
 from pandas.core.frame import DataFrame as pd_DataFame 
 from pyspark.sql import functions as F, types as T
-from pyspark.sql.dataframe import DataFrame as spk_DataFrame
 from pyspark.sql.window import Window as W
 
-import src.schemas as src_spk
+from src import schema_tools
 from src.core_banking import SAPSession
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, CORE_ENV, 
@@ -98,11 +106,6 @@ at_datasets    = f"{paths['abfss'].format('silver', resources['storage'])}/{path
 at_commissions = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['commissions']}"  
 atptx_loc      = f"{at_datasets}/atpt/delta"
 dambs_loc      = f"{at_datasets}/dambs/delta"
-
-
-def spk_withcolumns(a_df: spk_DataFrame, cols_dict: dict) -> spk_DataFrame: 
-    func = lambda x_df, col_item: x_df.withColumn(col_item[0], col_item[1])
-    return reduce(func, cols_dict.items(), a_df)
 
 
 def pd_print(a_df: pd_DataFame, width=180): 
@@ -194,7 +197,7 @@ wdraw_txns_0 = (spark.read.format('delta')
     .filter(F.col('atpt_mt_category_code').isin([6010, 6011])))
 
 # This is potentially a big Set. 
-wdraw_txns = (spk_withcolumns(wdraw_txns_0, wdraw_withcols)
+wdraw_txns = (schema_tools.withcolumns(wdraw_txns_0, wdraw_withcols)
     .select(wdraw_cols))
 
 display(wdraw_txns)
@@ -208,9 +211,14 @@ display(wdraw_txns)
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC **Nota:** Consideremos obtener las comisiones cobradas de SAP en vez de gestionar nuestra tabla.  
+
+# COMMAND ----------
+
 # Restablecer la tabla de comisiones en caso de experimentación.  
 
-reset_commissions = True
+reset_commissions = False
 if reset_commissions: 
     dbutils.fs.rm(at_commissions, True)
 
@@ -250,6 +258,11 @@ cmsns_summary.show()
 
 # COMMAND ----------
 
+commissionable = wdraw_txns
+display(commissionable)
+
+# COMMAND ----------
+
 # MAGIC %md 
 # MAGIC ## 3. Fees application
 # MAGIC Create a SAP-session object to apply the transactions, and then call the corresponding API.  
@@ -262,7 +275,7 @@ core_session = SAPSession(core_starter)
 
 # COMMAND ----------
 
-persons = core_session.call_person_set({'how_many':50})
+persons = core_session.call_person_set({'how_many': 50})
 pd_print(persons)
 
 # COMMAND ----------
