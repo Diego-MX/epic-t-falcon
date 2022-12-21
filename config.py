@@ -138,6 +138,33 @@ DELTA_TABLES = {
 #  date DATE *partition by
 
 
+LAYER_SETUP = {
+  'DateFormat' : '%Y%m%d',
+  'DAMNA' : {
+    'paths': { 
+      'zip'    : 'dbfs:/FileStore/',
+      'origen' : 'dbfs:/FileStore/DAMNA.txt',
+      'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/damna',
+      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMNA/DAMNA_Processed/'
+             }
+            },
+  'ATPTX' : {
+    'paths': { 
+      'zip'    : 'dbfs:/FileStore/',
+      'origen' : 'dbfs:/FileStore/ATPTX.txt',
+      'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/atptx',
+      'alias'  : 'por rellenar Data Diego',
+      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/ATPTX/ATPTX_Processed/'
+              }},
+  'DAMBS' : {
+    'paths': { 
+      'zip'    : 'dbfs:/FileStore/',
+      'origen' : 'dbfs:/FileStore/DAMBS.txt',
+      'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/dambs',
+      'alias'  : 'por rellenar Data Diego',
+      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMBS/DAMBS_Processed/'
+              }},
+}
 
 UAT_SPECS = {
     'DAMNA' : {
@@ -181,6 +208,7 @@ UAT_SPECS = {
         }} }
 
 
+<<<<<<< HEAD
 class ConfigEnviron():
     '''
     This class sets up the initial authentication object.  It reads its 
@@ -295,3 +323,5 @@ class ConfigEnviron():
         return sessioner
     
     
+=======
+>>>>>>> dev
