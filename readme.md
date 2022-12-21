@@ -1,4 +1,20 @@
-# Descripción  
+# Descripción
+
+Utilizamos este repositorio para la ejecución del proyecto que realizamos con el equipo de Databricks.  
+
+Esta _capa de transformación_ establece un puente entre la información de manejo de tarjetas y otros procesos internos.  
+El proveedor de tarjetas es Fiserv, y el principal consumidor de los resultados son los reportes regulatorios.   
+Si bien los reportes regulatorios recaen en el _core_ bancario -SAP-, aquí se hacen algunas transformaciones intermedias.  
+
+El esquema general es:  
+1. `Fiserv` deposita archivos en `raw`/`bronze`. 
+2. `Proyecto` convierte los archivos en formatos `silver`/`gold`. 
+3. `SAP` u otros consumidores utilizan los resultados como insumos. 
+
+
+
+
+# Solicitudes Técnicas
 
 Para la entrega del código les pedimos utilizar este formato de repositorio.  
 
