@@ -152,6 +152,15 @@ display(dambs_ref)
 
 # COMMAND ----------
 
+expr = "^[0-9]{11}\-[0-9]{3}\-[aA-zZ]{2}$"
+dambs_ref = dambs_ref.filter(F.col("b_sap_savings").rlike(expr))
+
+# COMMAND ----------
+
+display(dambs_ref)
+
+# COMMAND ----------
+
 # Preparamos las transacciones que corresponden a los retiros (withdrawals/wdraw).  
 
 # Alguna información complementaria: 
@@ -239,7 +248,7 @@ pre_commissionable = (wdraw_txns
     .withColumnRenamed('b_wdraw_commission_status', 'status_base')
     .join(miscommissions, how='outer', 
           on=['atpt_mt_interchg_ref', 'atpt_mt_ref_nbr'])
-    .filter(wdraw_txns['atpt_mt_posting_date'] >= since_date)
+    #.filter(wdraw_txns['atpt_mt_posting_date'] >= since_date)
     .select(*join_select, 'status_store', 'status_base'))
    
 commissionable = (pre_commissionable
@@ -258,7 +267,6 @@ cmsns_summary.show()
 
 core_starter = app_environ.prepare_coresession('qas-sap')
 core_session = SAPSession(core_starter)
-
 
 # COMMAND ----------
 
