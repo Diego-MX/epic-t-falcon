@@ -59,15 +59,20 @@ PAGE_MAX     = 500   # Max number of records (eg. Person-Set) to request at once
 
 # COMMAND ----------
 
+# MAGIC %reload_ext autoreload
+# MAGIC %autoreload 2
+
+# COMMAND ----------
+
 # Para desbichar el código, este bloque que actualiza los módulos de importación/modificación.  
 # El equivalente a veces se encuentra como: 
 # %load_ext autoreload
 # %autoreload 2
 
 from importlib import reload
-from src import core_banking; reload(core_banking)
+from src import core_banking; 
 import config; reload(config)
-
+reload(core_banking)
 
 # COMMAND ----------
 
@@ -275,8 +280,7 @@ pd_print(persons)
 
 # COMMAND ----------
 
-responses = core_session.call_txns_commissions(commissionable, 'atm', **{'how-many': 20})
-
+responses = core_session.call_txns_commissions(commissionable.limit(100), 'atm', **{'how-many': 20})
 
 # COMMAND ----------
 
@@ -313,7 +317,7 @@ for kk, sub_itr in groupby(row_itr, iter_key):
     
     print(f'Calling group {kk} of {n_grps}.')
     fees_set   = [Fee(**{
-        'AccountID'  : row['atpt_acct'], 
+        'AccountID'  : row[1]['atpt_acct'], 
         'TypeCode'   : cmsn_id, 
         'PostingDate': date_str}) for _, row in sub_itr]
     feeset_obj = FeeSet(**{

@@ -144,7 +144,7 @@ class SAPSession(Session):
         cmsn_id, cmsn_name = self.commission_labels[cmsn_key]
         
         by_k = kwargs.get('how-many', API_LIMIT)
-        date_str = date.now(tz=timezone('America/Mexico_City')).strftime('%Y-%m-%d')
+        date_str = dt.now(tz=timezone('America/Mexico_City')).strftime('%Y-%m-%d')
         
         if isinstance(accounts_df, frame.DataFrame):
             row_itr = accounts_df.iterrows()
@@ -161,7 +161,7 @@ class SAPSession(Session):
         for kk, sub_itr in groupby(row_itr, iter_key): 
             print(f'Calling group {kk} of {n_grps}.')
             fees_set   = [Fee(**{
-                'AccountID'  : row['atpt_acct'], 
+                'AccountID'  : row[1]['atpt_acct'], 
                 'TypeCode'   : cmsn_id, 
                 'PostingDate': date_str}) for row in sub_itr]
             feeset_obj = FeeSet(**{
