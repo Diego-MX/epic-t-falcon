@@ -30,15 +30,14 @@ from dateutil.relativedelta import relativedelta as r_delta
 import io
 from math import ceil
 import pandas as pd
-from pandas.core import frame, series
 from pyspark.sql import functions as F, types as T
-from pyspark.sql import dataframe as spk_frame
 import re
 from typing import Union
 
 from azure.identity import ClientSecretCredential
 from azure.storage.blob import ContainerClient
 
+from src.utilities import write_datalake
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 
@@ -102,32 +101,7 @@ def file_exists(a_path):
     except: 
         return False
 
-def write_to_datalake(a_df: Union[spk_frame.DataFrame, frame.DataFrame, series.Series], 
-        a_path, container=None, overwrite=False): 
-    
-    if isinstance(a_df, spk_frame.DataFrame):
-        if file_exists(a_path): 
-            dbutils.fs.rm(a_path)
-        
-        pre_path = re.sub(r'\.csv$', '', a_path)
-        a_df.coalesce(1).write.format('csv').save(pre_path)
-        
-        path_000 = [ff.path for ff in dbutils.fs.ls(pre_path) 
-                if re.match(r'.*000\.csv$', ff.name)][0]
-        dbutils.fs.cp(path_000, a_path)
-        dbutils.fs.rm(pre_path, recurse=True)
 
-    elif isinstance(a_df, (frame.DataFrame, series.Series)):
-        if container is None: 
-            raise "Valid Container is required"
-            
-        the_blob = container.get_blob_client(a_path)
-        to_index = {frame.DataFrame: False, 
-                    series.Series  : True}
-        
-        str_df = a_df.to_csv(index=to_index[type(a_df)], encoding='utf-8')
-        the_blob.upload_blob(str_df, encoding='utf-8', overwrite=overwrite)
-    
 
 # COMMAND ----------
 
@@ -145,7 +119,6 @@ def write_to_datalake(a_df: Union[spk_frame.DataFrame, frame.DataFrame, series.S
 
 # COMMAND ----------
 
-
 cms_tables = {
     'clients' : 'din_clients.slv_ops_cms_damna_stm', 
     'txns'    : 'farore_transactions.slv_ops_cms_atptx_stm', 
@@ -157,8 +130,7 @@ accounts_range = (spark.read.format('delta')
             F.min('file_date').alias('min_date'))
     .collect()[0])
 
-print(accounts_range)
-  
+print(accounts_range)  
 
 # COMMAND ----------
 
@@ -264,8 +236,8 @@ for _, row in pd_r2422.iterrows():
     date_str = row['MONTH_REPORT'].strftime('%Y-%m-%d')
     row_path = f"{reports}/r2422/r2422_{date_str}.csv" 
     row_trck = f"{reports}/r2422/processed/r2422_{date_str}.csv" 
-    write_to_datalake(row, row_path, slv_container, overwrite=True)
-    write_to_datalake(row, row_trck, slv_container, overwrite=True)
+    write_datalake(row, row_path, slv_container, overwrite=True)
+    write_datalake(row, row_trck, slv_container, overwrite=True)
 
 # COMMAND ----------
 
@@ -275,5 +247,5 @@ for _, row in pd_sispagos.iterrows():
     date_str = row['Trimestre'].strftime('%Y-%m-%d')
     row_path = f"{reports}/sispagos/sispagos_{date_str}.csv" 
     row_trck = f"{reports}/sispagos/processed/sispagos_{date_str}.csv" 
-    write_to_datalake(row, row_path, slv_container, overwrite=True)
-    write_to_datalake(row, row_trck, slv_container, overwrite=True)
+    write_datalake(row, row_path, slv_container, overwrite=True)
+    write_datalake(row, row_trck, slv_container, overwrite=True)

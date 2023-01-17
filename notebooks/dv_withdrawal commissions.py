@@ -184,7 +184,7 @@ wdraw_withcols = OrderedDict({
     'b_wdraw_rk_overall'    : F.row_number().over(wdw_account), 
     'b_wdraw_rk_inhouse'    : F.when(F.col('b_wdraw_is_inhouse'), F.row_number().over(wdw_inhouse)).otherwise(-1), 
     'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') | (F.col('b_wdraw_rk_inhouse') > 3),  
-    'b_wdraw_commission_status': F.when(~F.col('b_wdraw_is_commissionable'), -1)
+    'b_wdraw_commission_status':  F.when(~F.col('b_wdraw_is_commissionable'), -1)
                 .when(F.col('atpt_mt_posting_date').isNull(), -2).otherwise(0)})
 
 wdraw_cols = ['atpt_mt_eff_date', 'atpt_mt_category_code', 'atpt_acct', 
@@ -197,7 +197,7 @@ wdraw_txns_0 = (spark.read.format('delta')
     .filter(F.col('atpt_mt_category_code').isin([6010, 6011])))
 
 # This is potentially a big Set. 
-wdraw_txns = (schema_tools.withcolumns(wdraw_txns_0, wdraw_withcols)
+wdraw_txns = (schema_tools.with_columns(wdraw_txns_0, wdraw_withcols)
     .select(wdraw_cols))
 
 display(wdraw_txns)
@@ -240,7 +240,7 @@ miscommissions = (spark.read.format('delta').load(at_commissions)
 
 join_select = [F.coalesce(wdraw_txns[a_col], miscommissions[a_col]).alias(a_col)
     for a_col in miscommissions.columns 
-    if a_col not in ['atpt_mt_interchg_ref', 'atpt_mt_ref_nbr', 'status_store']]
+    if  a_col not in ['atpt_mt_interchg_ref', 'atpt_mt_ref_nbr', 'status_store']]
 
 pre_commissionable = (wdraw_txns
     .filter(F.col('b_wdraw_commission_status') == 0)
@@ -258,11 +258,6 @@ cmsns_summary.show()
 
 # COMMAND ----------
 
-commissionable = wdraw_txns
-display(commissionable)
-
-# COMMAND ----------
-
 # MAGIC %md 
 # MAGIC ## 3. Fees application
 # MAGIC Create a SAP-session object to apply the transactions, and then call the corresponding API.  
@@ -270,6 +265,8 @@ display(commissionable)
 # COMMAND ----------
 
 core_starter = app_environ.prepare_coresession('qas-sap')
+
+
 core_session = SAPSession(core_starter)
 
 
