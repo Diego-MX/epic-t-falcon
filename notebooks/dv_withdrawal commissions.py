@@ -88,9 +88,8 @@ reload(core_banking)
 # Importamos los módulos; y definir funciones y variables más específicas. 
 
 from collections import OrderedDict
-from datetime import datetime as dt, date, timedelta as delta
+from datetime import date, timedelta as delta
 from delta.tables import DeltaTable
-from functools import reduce
 import pandas as pd
 from pandas.core.frame import DataFrame as pd_DataFame 
 from pyspark.sql import functions as F, types as T
@@ -99,9 +98,8 @@ from pyspark.sql.window import Window as W
 from src import schema_tools
 from src.core_banking import SAPSession
 from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP, CORE_ENV, 
-    DATALAKE_PATHS as paths, 
-    DELTA_TABLES as delta_keys)
+    ENV, SERVER, RESOURCE_SETUP,  
+    DATALAKE_PATHS as paths)
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
