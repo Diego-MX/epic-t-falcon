@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from pandas.core.frame import DataFrame as pd_DF
 from pyspark.sql import functions as F, types as T
+from pyspark.sql.column import Column as spk_Col
 from pyspark.sql.dataframe import DataFrame as spk_DF
 from typing import List, Dict
 
@@ -75,7 +76,30 @@ def len_cols(cols_df: pd_DF) -> int:
 
 
 def with_columns(a_df: spk_DF, cols_dict: dict) -> spk_DF: 
-    func = lambda x_df, col_item: x_df.withColumn(col_item[0], col_item[1])
-    b_df = reduce(func, cols_dict.items(), a_df)
+    f_with = lambda x_df, col_item: x_df.withColumn(col_item[0], col_item[1])
+    
+    non_cols = {name for name, col in cols_dict.items() 
+            if not isinstance(col, spk_Col)}
+    if non_cols: 
+        raise Exception(f"Non Columns: {non_cols}")
+        
+    b_df = reduce(f_with, cols_dict.items(), a_df)
     return b_df
+
+
+def join_with_suffix(a_df, b_df, on_cols, how, suffix): 
+    non_on = set(a_df.columns).intersection(b_df.columns).difference(on_cols)
+    a_rnmr = {a_col+suffix[0]: a_col for a_col in non_on}
+    b_rnmr = {b_col+suffix[1]: b_col for b_col in non_on}
+    
+    a_rnmd = with_columns(a_df, a_rnms)
+    b_rnmd = with_columns(b_df, b_rnms)
+    
+    joiner = a_rnmd.join(b_rnmd, on=on_cols, how=how)
+    return joiner
+    
+    
+    
+
+
     

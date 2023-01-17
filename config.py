@@ -87,17 +87,20 @@ CORE_SETUP = {
 # Env-independent Usage Variables. 
 
 DATALAKE_PATHS = {
-    'blob'    : "https://{}.blob.core.windows.net/",   # STORAGE
-    'abfss'   : "abfss://{}@{}.dfs.core.windows.net",  # CONTAINER(bronze|silver|gold), STORAGE
-    'btp'          : "ops/fraude/bronze/btp", 
-    'spei'         : "ops/transactions/spei", 
-    'spei2'        : "ops/fraude/bronze/spei", 
-    'from-cms'     : "ops/regulatory/card-management/transformation-layer", 
-    'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready", 
-    'reports'      : "ops/regulatory/transformation-layer",
-    'datasets'     : "ops/card-management/datasets",
-    'commissions'  : "ops/account-management/commissions",
-    'conciliations': "ops/core-banking/conciliations"
+    'blob'         : "https://{}.blob.core.windows.net/",   # STORAGE
+    'abfss'        : "abfss://{}@{}.dfs.core.windows.net",  # CONTAINER(bronze|silver|gold), STORAGE
+    'btp'          : "ops/fraude/bronze/btp",                # ¿?
+    'spei'         : "ops/transactions/spei",                # ¿?
+    'spei2'        : "ops/fraude/bronze/spei",               # SPEI (original y conciliación)
+    'spei-gfb'     : "ops/core-banking/conciliations/recoif",# SPEI conciliación II. 
+    'spei-c4b'     : "ops/core-banking/conciliations/spei", 
+    'from-cms'     : "ops/regulatory/card-management/transformation-layer",  # 
+    'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready",  # Extraer y descomprimir
+    'reports'      : "ops/regulatory/transformation-layer",  # R2422, SISPAGOS,
+    'reports2'     : "ops/regulatory/conciliations",         #
+    'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
+    'commissions'  : "ops/account-management/commissions",   # comisiones de cajeros
+    'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI. 
 }
 
 DELTA_TABLES = {
@@ -107,35 +110,6 @@ DELTA_TABLES = {
     'DAMBS2': ('dambs2', 'dambs2', 'nayru_accounts.slv_ops_cms_dambs2_stm'), 
     'DAMBSC': ('dambsc', 'dambsc', 'nayru_accounts.slv_ops_cms_dambsc_stm')}
 
-
-#  DAMBS
-#  AccountNumber STRING,
-#  CustomerNumber STRING,
-#  CardExpirationDate STRING,
-#  NumberUnblockedCards INT,
-#  CurrentBalanceSign STRING,
-#  CurrentBalance FLOAT,
-#  date DATE ... partition by. 
-
-# DAMNA
-#  CustomerNumber STRING,F
-#  Municipality STRING,
-#  GenderCode STRING,
-#  City STRING,
-#  NameTypeIndicator STRING,
-#  date DATE * partition by 
-
-# ATPTX
-# AccountNumber STRING,
-# EffectiveDate STRING,
-# TransactionType STRING,
-# TransactionSign STRING,
-# TransactionCode STRING,
-# TransactionAmountSign STRING,
-# TransactionAmount STRING,
-#  AcceptorCategoryCode STRING,
-#  TransactionChannel INT,
-#  date DATE *partition by
 
 
 LAYER_SETUP = {
@@ -208,7 +182,6 @@ UAT_SPECS = {
         }} }
 
 
-<<<<<<< HEAD
 class ConfigEnviron():
     '''
     This class sets up the initial authentication object.  It reads its 
@@ -323,5 +296,3 @@ class ConfigEnviron():
         return sessioner
     
     
-=======
->>>>>>> dev

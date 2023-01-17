@@ -62,7 +62,7 @@ from azure.storage.blob import BlobServiceClient
 from pyspark.sql import functions as F, types as T
 from pyspark.sql.window import Window as W
 
-import src.schemas as src_spk
+import src.schema_tools as src_spk
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, 
     DATALAKE_PATHS as paths, 
@@ -110,54 +110,7 @@ def len_cols(cols_df: DataFrame) -> int:
 
 # COMMAND ----------
 
-experiment = False
-
-if experiment: 
-    a_key = 'ATPTX'
-
-    b_key = delta_keys[a_key][0]
-
-    the_dir   = f"{read_from}/{a_key}" 
-    dtls_file = f"../refs/catalogs/{b_key}_detail.feather"
-    hdrs_file = f"../refs/catalogs/{b_key}_header.feather"
-    trlr_file = f"../refs/catalogs/{b_key}_trailer.feather"
-
-    dtls_df = pd.read_feather(dtls_file)
-    hdrs_df = pd.read_feather(hdrs_file)
-    trlr_df = pd.read_feather(trlr_file)
-
-    dtls_df['name'] = dtls_df['name'].str.replace(')', '', regex=False)
-
-
-    up_to_len = max(len_cols(hdrs_df), len_cols(trlr_df))
-    longer_rows = (F.length(F.rtrim(F.col('value'))) > up_to_len)
-
-    prep_dtls     = src_spk.colsdf_prepare(dtls_df)
-    the_selectors = src_spk.colsdf_2_select(prep_dtls, 'value')  
-    # Returns Dict: [1-substring, 2-typecols, 3-sorted]
-
-    the_schema = src_spk.colsdf_2_schema(prep_dtls)
-
-    pre_cols = ['value', F.input_file_name().alias('file_path'), 
-        F.col('_metadata.file_modification_time').alias('file_modified')]
-    
-    pre_delta = (spark.read.format('text')
-        .option('recursiveFileLookup', 'true')
-        .option('header', 'true')
-        .load(the_dir)
-        .select(*pre_cols))
-    
-    display(pre_delta)
-
-
-# COMMAND ----------
-
 # Usa las variables: DELTA_KEYS, READ_FROM, WRITE_TO
-
-
-# def update_create_delta(a_key, get_schema=False): 
-    
-    
 def predelta_from_key(a_key, get_schema=False): 
     b_key  = delta_keys[a_key][0]
     a_file = delta_keys[a_key][1]
@@ -235,29 +188,20 @@ def predelta_from_key(a_key, get_schema=False):
 
 # COMMAND ----------
 
-damna_key = 'DAMNA'
+key_1 = 'DAMNA'
 
 damna_delta, damna_schema = predelta_from_key(damna_key, get_schema=True)
 
-damna_file = delta_keys[damna_key][1]
-damna_tbl  = delta_keys[damna_key][2]
+_, key_2, tbl_name = delta_keys[key_1]
+a_path = f"{write_to}/{key_2}/delta"
 
 (damna_delta.write.format('delta')
     .mode('append')
     .option('mergeSchema', 'true')
-    .save(damna_path))
+    .save(a_path))
 
 display(damna_delta)
 
-
-
-
-# COMMAND ----------
-
-if view_tables: 
-    damna_path = f"{write_to}/{damna_file}/delta"
-    chk_damna = spark.read.format('delta').load(damna_path)
-    display(chk_damna)
 
 # COMMAND ----------
 
@@ -266,27 +210,19 @@ if view_tables:
 
 # COMMAND ----------
 
-atptx_key  = 'ATPTX'
-atptx_file = delta_keys[atptx_key][1]
-atptx_tbl  = delta_keys[atptx_key][2]
+key_1  = 'ATPTX'
+_, key_2, tbl_name = delta_keys[key_1]
 
-atptx_path = f"{write_to}/{atptx_file}/delta"
+a_path = f"{write_to}/{key_2}/delta"
 
-atptx_delta = predelta_from_key(atptx_key)
+a_delta = predelta_from_key(key_1)
 
-(atptx_delta.write.format('delta')
+(a_delta.write.format('delta')
     .mode('append')
     .option('mergeSchema', 'true')
-    .save(atptx_path))
+    .save(a_path))
 
-display(atptx_delta)
-
-# COMMAND ----------
-
-if view_tables: 
-    atptx_path = f"{write_to}/{atptx_file}/delta"
-    chk_atptx = spark.read.format('delta').load(atptx_path)
-    display(chk_atptx)
+display(a_delta)
 
 # COMMAND ----------
 
@@ -295,10 +231,9 @@ if view_tables:
 
 # COMMAND ----------
 
-dambs1_key  = 'DAMBS1'
-dambs1_file = delta_keys[dambs1_key][1]
-
-dambs1_path = f"{write_to}/{dambs1_file}/delta"
+key_1  = 'DAMBS1'
+_, key_2, tbl_name = delta_keys[key_1]
+a_path = f"{write_to}/{dambs1_file}/delta"
 
 dambs1_delta = predelta_from_key(dambs1_key)
 
@@ -306,16 +241,9 @@ dambs1_delta = predelta_from_key(dambs1_key)
     .write.format('delta')
     .mode('append')
     .option('mergeSchema', 'true')
-    .save(dambs1_path))
+    .save(a_path))
 
 display(dambs1_delta)
-
-# COMMAND ----------
-
-if view_tables: 
-    dambs1_path = f"{write_to}/{dambs1_file}/delta"
-    chk_dambs1 = spark.read.format('delta').load(dambs1_path)
-    display(chk_dambs1)
 
 # COMMAND ----------
 
@@ -324,29 +252,21 @@ if view_tables:
 
 # COMMAND ----------
 
-dambs2_key  = 'DAMBS2'
-dambs2_file = delta_keys[dambs2_key][1]
-dambs2_tbl  = delta_keys[dambs2_key][2]
+key_1  = 'DAMBS2'
+_, key_2, tbl_name = delta_keys[dambs2_key]
 
-dambs2_path = f"{write_to}/{dambs2_file}/delta"
+a_path = f"{write_to}/{key_2}/delta"
 
-dambs2_delta, dambs2_schema = predelta_from_key(dambs2_key, get_schema=True)
+dambs2_delta, dambs2_schema = predelta_from_key(key_1, get_schema=True)
 
 (dambs2_delta.write.format('delta')
     .mode('append')
     .option('mergeSchema', 'true')
-    .save(dambs2_path))
+    .save(a_path))
 
 display(dambs2_delta)
 
 
-
-# COMMAND ----------
-
-if view_tables: 
-    dambs2_path = f"{write_to}/{dambs2_file}/delta"
-    chk_dambs2 = spark.read.format('delta').load(dambs2_path)
-    display(chk_dambs2)
 
 # COMMAND ----------
 
@@ -355,65 +275,16 @@ if view_tables:
 
 # COMMAND ----------
 
-dambsc_key  = 'DAMBSC'
-dambsc_file = delta_keys[dambsc_key][1]
-dambsc_tbl  = delta_keys[dambsc_key][2]
+key_1  = 'DAMBSC'
+_, key_2, tbl_name = delta_keys[key_1]
 
-dambsc_path= f"{write_to}/{dambsc_file}/delta"
+a_path = f"{write_to}/{key_2}/delta"
 
-dambsc_delta = predelta_from_key(dambsc_key)
+dambsc_delta = predelta_from_key(key_1)
 
 (dambsc_delta.write.format('delta')
     .mode('append')
     .option('mergeSchema', 'true')
-    .save(dambsc_path))
+    .save(a_path))
 
 display(dambsc_delta)
-
-# COMMAND ----------
-
-if view_tables: 
-    dambsc_path = f"{write_to}/{dambsc_file}/delta"
-    chk_dambsc = spark.read.format('delta').load(dambsc_path)
-    display(chk_dambsc)
-
-# COMMAND ----------
-
-# MAGIC %md 
-# MAGIC # Reiniciar y limpieza
-
-# COMMAND ----------
-
-delta_keys
-
-# COMMAND ----------
-
-first_time = True
-if first_time: 
-#     pass
-    #spark.sql(f"CREATE TABLE IF NOT EXISTS {damna_tbl } USING DELTA LOCATION '{damna_path }'")
-    spark.sql(f"CREATE TABLE IF NOT EXISTS {atptx_tbl } USING DELTA LOCATION '{atptx_path }'")
-    #spark.sql(f"CREATE TABLE IF NOT EXISTS {dambs1_tbl} USING DELTA LOCATION '{dambs1_path}'")
-    #spark.sql(f"CREATE TABLE IF NOT EXISTS {dambs2_tbl} USING DELTA LOCATION '{dambs2_path}'")
-    #spark.sql(f"CREATE TABLE IF NOT EXISTS {dambsc_tbl} USING DELTA LOCATION '{dambsc_path}'")
-
-# COMMAND ----------
-
-erase_table  = True
-erase_source = True
-if erase_table:
-    pass
-#     spark.sql("DROP TABLE IF EXISTS din_clients.slv_ops_cms_damna_stm")
-#     spark.sql("DROP TABLE IF EXISTS farore_transactions.slv_ops_cms_atptx_stm")
-#     spark.sql("DROP TABLE IF EXISTS nayru_accounts.slv_ops_cms_dambs_stm")
-#     spark.sql("DROP TABLE IF EXISTS nayru_accounts.slv_ops_cms_dambs2_stm")
-#     spark.sql("DROP TABLE IF EXISTS nayru_accounts.slv_ops_cms_dambsc_stm")
-    
-    
-if erase_source: 
-    pass
-#     dbutils.fs.rm(f"{write_to}/damna", True)
-#     dbutils.fs.rm(f"{write_to}/atpt", True)
-#     dbutils.fs.rm(f"{write_to}/dambs", True)
-#     dbutils.fs.rm(f"{write_to}/dambs2", True)
-#     dbutils.fs.rm(f"{write_to}/dambsc", True)
