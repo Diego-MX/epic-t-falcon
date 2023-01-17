@@ -26,7 +26,7 @@ RESOURCE_SETUP = {
         'scope'   : 'eh-core-banking', 
         'sp_keys' : { # oauth-databricks-qas
             'tenant_id'        : (1, 'aad-tenant-id'), 
-            'subscription_id'  : (1, 'sp-core-events-subscription'), 
+            'subscription_id'  : (1, 'sp-core-events-suscription'), 
             'client_id'        : (1, 'sp-core-events-client'), 
             'client_secret'    : (1, 'sp-core-events-secret')}, 
         'storage' : 'stlakehyliaqas', 

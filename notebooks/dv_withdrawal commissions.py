@@ -67,16 +67,25 @@ PAGE_MAX     = 500   # Max number of records (eg. Person-Set) to request at once
 
 # COMMAND ----------
 
+# MAGIC %reload_ext autoreload
+# MAGIC %autoreload 2
+
+# COMMAND ----------
+
 # Para desbichar el código, este bloque que actualiza los módulos de importación/modificación.  
 # A veces también se encuentra como: 
 #>> %load_ext autoreload
 #>> %autoreload 2
 
 from importlib import reload
+<<<<<<< HEAD
 from src import core_banking; reload(core_banking)
 from src import schema_tools; reload(schema_tools)
+=======
+from src import core_banking; 
+>>>>>>> 73dc63d315ae3b9de5eb75d1a32ee99b930b79cb
 import config; reload(config)
-
+reload(core_banking)
 
 # COMMAND ----------
 
@@ -150,6 +159,15 @@ dambs_ref = (spark.read.format('delta')
         F.col('ambs_sav_acct_nbr'), F.col('ambs_sav_rtng_nbr').cast(T.IntegerType()), F.lit('MX')))
     .filter(F.col('b_rank_acct') == 1)
     .select(*dambs_cols))
+
+display(dambs_ref)
+
+# COMMAND ----------
+
+expr = "^[0-9]{11}\-[0-9]{3}\-[aA-zZ]{2}$"
+dambs_ref = dambs_ref.filter(F.col("b_sap_savings").rlike(expr))
+
+# COMMAND ----------
 
 display(dambs_ref)
 
@@ -247,7 +265,7 @@ pre_commissionable = (wdraw_txns
     .withColumnRenamed('b_wdraw_commission_status', 'status_base')
     .join(miscommissions, how='outer', 
           on=['atpt_mt_interchg_ref', 'atpt_mt_ref_nbr'])
-    .filter(wdraw_txns['atpt_mt_posting_date'] >= since_date)
+    #.filter(wdraw_txns['atpt_mt_posting_date'] >= since_date)
     .select(*join_select, 'status_store', 'status_base'))
    
 commissionable = (pre_commissionable
@@ -272,7 +290,6 @@ display(commissionable)
 core_starter = app_environ.prepare_coresession('qas-sap')
 core_session = SAPSession(core_starter)
 
-
 # COMMAND ----------
 
 persons = core_session.call_person_set({'how_many': 50})
@@ -280,8 +297,7 @@ pd_print(persons)
 
 # COMMAND ----------
 
-responses = core_session.call_txns_commissions(commissionable, 'atm', **{'how-many': 20})
-
+responses = core_session.call_txns_commissions(commissionable.limit(100), 'atm', **{'how-many': 20})
 
 # COMMAND ----------
 
@@ -318,7 +334,7 @@ for kk, sub_itr in groupby(row_itr, iter_key):
     
     print(f'Calling group {kk} of {n_grps}.')
     fees_set   = [Fee(**{
-        'AccountID'  : row['atpt_acct'], 
+        'AccountID'  : row[1]['atpt_acct'], 
         'TypeCode'   : cmsn_id, 
         'PostingDate': date_str}) for _, row in sub_itr]
     feeset_obj = FeeSet(**{
