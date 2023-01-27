@@ -1,18 +1,22 @@
-from os import environ, getenv
+from os import environ, getenv, remove
 import re
 
 from azure.identity import ClientSecretCredential
 from azure.identity._credentials.default import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
+from azure.storage.blob import BlobServiceClient
+from pathlib import Path
 try: 
     from pyspark.dbutils import DBUtils
 except ImportError: 
     DBUtils = None
 try:
     from dotenv import load_dotenv
+    load_dotenv('.env', override=True)
 except ImportError: 
     load_dotenv = None
-    
+
+
 ENV = environ.get('ENV_TYPE')
 SERVER = environ.get('SERVER_TYPE')
 CORE_ENV = environ.get('CORE_ENV')
@@ -191,6 +195,7 @@ class ConfigEnviron():
     From then on, use PlatformResourcer to access other resources. 
     '''
     def __init__(self, env_type, server, spark=None):
+        print(f"Env, Server: {env_type}, {server}")
         self.env = env_type
         self.spark = spark
         self.server = server
@@ -231,7 +236,38 @@ class ConfigEnviron():
             the_creds = DefaultAzureCredential()
         self.credential = the_creds
         
+
+    def upload_storage_blob(self, a_file, blob, container, account=None, overwrite=False):
+        if account is None: 
+            account = self.config['storage']
+
+        if not hasattr(self, 'credential'): 
+            self.set_credential()
+
+        the_url = f"https://{account}.blob.core.windows.net/"
+        b_service = BlobServiceClient(the_url, credential=self.credential)
+
+        the_blob = b_service.get_blob_client(container, blob)
+        with open(a_file, 'rb') as _b: 
+            the_blob.upload_blob(_b, overwrite=overwrite)
+    
+
+    def download_storage_blob(self, a_file, blob, container, account=None): 
+        if account is None: 
+            account = self.config['storage']
         
+        the_url = f"https://{account}.vault.azure.net/"
+        b_service = BlobServiceClient(the_url, credential=self.env.credential)
+
+        if Path(a_file): 
+            remove(a_file)
+        
+        the_blob = b_service.get_blob_client(container, blob)
+        with open(a_file, 'wb') as _b: 
+            b_data = the_blob.download_blob()
+            b_data.readinto(_b)
+
+
     def sparktransfer_credential(self): 
         if not hasattr(self, 'call_dict'): 
             self.set_secretters()
