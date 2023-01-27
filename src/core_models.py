@@ -5,12 +5,12 @@ from typing import List, Optional
 
 class Fee(BaseModel): 
     AccountID   : str
-    TypeCode    : Optional[str]
-    PostingDate : Optional[str]
-    ValueDate   : Optional[str]
+    TypeCode    : str
+    PostingDate : str
+    ValueDate   : str
     Amount      : Optional[float]
-    Currency    : Optional[str]
-    PaymentNote : Optional[str]
+    Currency    : str
+    PaymentNote : str
 
 class FeeSet(BaseModel): 
     ExternalID  : str
@@ -21,5 +21,4 @@ class FeeSet(BaseModel):
     def __len__(self): 
         return len(self.FeeDetail)
     
-        
     

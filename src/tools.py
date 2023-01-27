@@ -1,11 +1,11 @@
 from functools import reduce
 import numpy as np
 import pandas as pd
-from pandas.core.frame import DataFrame as pd_DF
+from pandas import DataFrame as pd_DF, Series as pd_S
 from pyspark.sql import functions as F, types as T
 from pyspark.sql.column import Column as spk_Col
 from pyspark.sql.dataframe import DataFrame as spk_DF
-from typing import List, Dict
+from typing import List, Dict, Union
 
 
 def colsdf_prepare(a_df: pd_DF) -> pd_DF: 
@@ -13,30 +13,33 @@ def colsdf_prepare(a_df: pd_DF) -> pd_DF:
     b_df = (a_df
         .astype({an_int: int for an_int in int_cols})
         .assign(
-            sgn_name = lambda df: df['name'].shift(1), 
+            sgn_name = lambda df: df['name'].shift(1),
+            len_8   = lambda df: (df['Length'] < 8).isin([True]), 
             c_type = lambda df: np.where(df['aux_fill'].isin([True]), 0, 
                               np.where(df['aux_sign'].isin([True]), 1, 
                             np.where(df['aux_sign'].shift(1).isin([True]), 2, 
                           np.where(df['aux_date'].isin([True]), 3, 
                         np.where((df['fmt_type'] == 'X').isin([True]), 4, 
-                      np.where((df['fmt_type'] == '9').isin([True]), 5, 
-                    -1)))))))
+                      np.where(((df['fmt_type'] == '9') & df['len_8']).isin([True]), 5,
+                    np.where(((df['fmt_type'] == '9') & (~df['len_8'])).isin([True]), 6,
+                  -1))))))))
         .set_index('name'))
     return b_df
         
     
 def colsdf_2_select(b_df: pd_DF, base_col='value'): 
     # F_NAUGHT as callable placeholder in list. 
-    f_naught  = lambda name: None
+    f_naught  = lambda name: T.NullType()
     f_sgn_dbl = lambda name: (F.col(name).cast(T.DoubleType()) 
             *F.concat(F.col(f'{name}_sgn'), F.lit('1')).cast(T.DoubleType())
             ).alias(name)
     f_date    = lambda name: F.to_date(F.col(name), 'yyyyMMdd').alias(name)
     f_str     = lambda name: F.trim(F.col(name)).alias(name)
     f_int     = lambda name: F.col(name).cast(T.IntegerType()).alias(name)
+    f_long    = lambda name: F.col(name).cast(T.LongType()).alias(name)
     
-    # Corresponding to C_TYPE = ... 2, 3, 4, 5. 
-    type_funcs = [f_naught, f_naught, f_sgn_dbl, f_date, f_str, f_int]
+    # Corresponding to C_TYPE = ... 2, 3, 4, 5, 6
+    type_funcs = [f_naught, f_naught, f_sgn_dbl, f_date, f_str, f_int, f_long]
     
     len_slct = [
         F.substring(F.col(base_col), a_row['From'], a_row['Length']).alias(name)
@@ -67,14 +70,6 @@ def colsdf_2_schema(b_df: pd_DF) -> T.StructType:
 
 
 
-def len_cols(cols_df: pd_DF) -> int: 
-    last_fill = cols_df['aux_fill'].iloc[-1]
-    up_to = -1 if last_fill else len(cols_df)
-    the_len = cols_df['Length'][:up_to].sum()
-    return int(the_len)
-
-
-
 def with_columns(a_df: spk_DF, cols_dict: dict) -> spk_DF: 
     f_with = lambda x_df, col_item: x_df.withColumn(col_item[0], col_item[1])
     
@@ -98,8 +93,33 @@ def join_with_suffix(a_df, b_df, on_cols, how, suffix):
     joiner = a_rnmd.join(b_rnmd, on=on_cols, how=how)
     return joiner
     
-    
-    
 
+
+def write_datalake(a_df: Union[spk_DF, pd_DF, pd_S], 
+        a_path, container=None, overwrite=False, spark=None): 
+    
+    if isinstance(a_df, spk_DF):
+        dbutils = DBUtils(spark)
+        if file_exists(a_path): 
+            dbutils.fs.rm(a_path)
+        
+        pre_path = re.sub(r'\.csv$', '', a_path)
+        a_df.coalesce(1).write.format('csv').save(pre_path)
+        
+        path_000 = [ff.path for ff in dbutils.fs.ls(pre_path) 
+                if re.match(r'.*000\.csv$', ff.name)][0]
+        dbutils.fs.cp(path_000, a_path)
+        dbutils.fs.rm(pre_path, recurse=True)
+
+    elif isinstance(a_df, (pd_DF, series.Series)):
+        if container is None: 
+            raise "Valid Container is required"
+            
+        the_blob = container.get_blob_client(a_path)
+        to_index = {pd_DF: False, series.Series: True}
+        
+        str_df = a_df.to_csv(index=to_index[type(a_df)], encoding='utf-8')
+        the_blob.upload_blob(str_df, encoding='utf-8', overwrite=overwrite)
+    
 
     
