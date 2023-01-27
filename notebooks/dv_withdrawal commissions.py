@@ -53,22 +53,26 @@
 
 # COMMAND ----------
 
-# Al ejecutarse como _notebook_, instalamos las librerías necesarias.  
-%pip install -r ../reqs_dbks.txt
+# MAGIC %pip install -r ../reqs_dbks.txt
 
 # COMMAND ----------
 
 # Algunas constantes de negocio.  
-
-COMSNS_FRAME = 15    # Max Days to charge commissions. 
+COMSNS_FRAME = 30    # Max Days to charge commissions. 
 COMSNS_APPLY = 100   # Max number of commissions to apply at once. 
-PAGE_MAX     = 500   # Max number of records (eg. Person-Set) to request at once. 
+PAGE_MAX     = 200   # Max number of records (eg. Person-Set) to request at once. 
 
 
 # COMMAND ----------
 
-# MAGIC %reload_ext autoreload
-# MAGIC %autoreload 2
+from collections import OrderedDict
+from datetime import datetime as dt, date, timedelta as delta
+from delta.tables import DeltaTable as Δ
+from functools import reduce
+import pandas as pd
+from pandas import DataFrame as pd_DF, Series as pd_S
+from pyspark.sql import (DataFrame as spk_DF, 
+    functions as F, types as T, Window as W)
 
 # COMMAND ----------
 
@@ -79,23 +83,12 @@ PAGE_MAX     = 500   # Max number of records (eg. Person-Set) to request at once
 
 from importlib import reload
 from src import core_banking; reload(core_banking)
-from src import schema_tools; reload(schema_tools)
+from src import tools, utilities; reload(tools); reload(utilities)
 import config; reload(config)
-reload(core_banking)
 
 # COMMAND ----------
 
-# Importamos los módulos; y definir funciones y variables más específicas. 
-
-from collections import OrderedDict
-from datetime import date, timedelta as delta
-from delta.tables import DeltaTable
-import pandas as pd
-from pandas.core.frame import DataFrame as pd_DataFame 
-from pyspark.sql import functions as F, types as T
-from pyspark.sql.window import Window as W
-
-from src import schema_tools
+from src import tools, utilities as src_utils
 from src.core_banking import SAPSession
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP,  
@@ -105,18 +98,12 @@ resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
 app_environ.sparktransfer_credential()
 
-at_datasets    = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['datasets']}"  
-at_commissions = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['commissions']}"  
+slv_path       = paths['abfss'].format('silver', resources['storage'])
+at_datasets    = f"{slv_path}/{paths['datasets']}"  
+at_commissions = f"{slv_path}/{paths['commissions']}/delta"
+
 atptx_loc      = f"{at_datasets}/atpt/delta"
 dambs_loc      = f"{at_datasets}/dambs/delta"
-
-
-def pd_print(a_df: pd_DataFame, width=180): 
-    options = ['display.max_rows',    None, 
-               'display.max_columns', None, 
-               'display.width',       width]
-    with pd.option_context(*options):
-        print(a_df)
 
 
 # COMMAND ----------
@@ -129,41 +116,34 @@ def pd_print(a_df: pd_DataFame, width=180):
 
 # COMMAND ----------
 
-experimental = False
-if experimental: 
-    wdraw_txns_0 = (spark.read.format('delta')
-        .load(atptx_loc)
-        .withColumn('b_wdraw_acquirer_code', F.substring(F.col('atpt_mt_interchg_ref'), 2, 6))
-        .select('b_wdraw_acquirer_code')
-        .distinct())
-    display(wdraw_txns_0)
-
-# COMMAND ----------
-
 # Datos correspondientes a las cuentas/accounts/dambs complementan la información de las transacciones. 
 
-wdw_account =  W.partitionBy('ambs_acct').orderBy(F.col('file_date').desc())
-dambs_cols = ['file_date', 'b_account_num', 'b_rank_acct', 'b_sap_savings', 'ambs_sav_rtng_nbr',  'ambs_sav_acct_nbr']
+w_ambs = W.partitionBy('ambs_acct').orderBy(F.col('file_date').desc())
+dambs_cols  = ['file_date', 'b_account_num', 'b_rank_acct', 'b_sap_savings', 'ambs_sav_rtng_nbr',  'ambs_sav_acct_nbr']
+sap_regex   = r"\d{1}\-\d{3}\-[A-Z]{2}"
 
 dambs_ref = (spark.read.format('delta')
     .load(dambs_loc)
+    .filter(F.col('ambs_sav_acct_nbr') != '')
+    .filter(F.col('ambs_sav_rtng_nbr').isNotNull())
     .withColumn('b_account_num', F.col('ambs_acct'))
-    .withColumn('b_rank_acct', F.row_number().over(wdw_account))
+    .withColumn('b_sap_savings', F.lpad(F.col('ambs_sav_acct_nbr'), 11, '0'))
     .withColumn('b_sap_savings', F.concat_ws('-', 
-        F.col('ambs_sav_acct_nbr'), F.col('ambs_sav_rtng_nbr').cast(T.IntegerType()), F.lit('MX')))
+          F.col('b_sap_savings'), F.col('ambs_sav_rtng_nbr').cast(T.IntegerType()), F.lit('MX')))
+    .withColumn(  'b_rank_acct', F.row_number().over(w_ambs))
     .filter(F.col('b_rank_acct') == 1)
+    .filter(F.col('b_sap_savings').rlike(sap_regex))
     .select(*dambs_cols))
 
 display(dambs_ref)
 
 # COMMAND ----------
 
-expr = "^[0-9]{11}\-[0-9]{3}\-[aA-zZ]{2}$"
-dambs_ref = dambs_ref.filter(F.col("b_sap_savings").rlike(expr))
-
-# COMMAND ----------
-
-display(dambs_ref)
+dambs_test = (spark.read.format('delta')
+    .load(dambs_loc)
+    .filter(F.col('ambs_acct').isin(['7651509433307361255']))
+    .select('file_date', 'ambs_acct', 'ambs_short_name', 'ambs_sav_rtng_nbr', 'ambs_sav_acct_nbr'))
+display(dambs_test)
 
 # COMMAND ----------
 
@@ -184,20 +164,25 @@ display(dambs_ref)
 #    6010: cash, 6011: atm, 
 #    (596[02456789], 7995): high-risk-merchant}
 
-wdw_account =  W.partitionBy('atpt_acct', 'b_wdraw_month').orderBy('atpt_mt_eff_date')
-wdw_inhouse = (W.partitionBy('atpt_acct', 'b_wdraw_month', 'b_wdraw_is_inhouse')
-    .orderBy('atpt_mt_eff_date'))
+
+w_month_acct = (W.partitionBy('atpt_acct', 'b_wdraw_month')
+    .orderBy(F.col('atpt_mt_eff_date').desc()))
+w_inhouse    = (W.partitionBy('atpt_acct', 'b_wdraw_month', 'b_wdraw_is_inhouse')
+    .orderBy(F.col('atpt_mt_eff_date').desc()))
+w_txn_ref = (W.partitionBy('atpt_mt_interchg_ref')
+    .orderBy(F.col('atpt_mt_eff_date').desc()))
 
 wdraw_withcols = OrderedDict({
     'b_account_num'         : F.col('atpt_acct'), 
     'b_wdraw_month'         : F.date_trunc('month', F.col('atpt_mt_eff_date')).cast(T.DateType()), 
     'b_wdraw_acquirer_code' : F.substring(F.col('atpt_mt_interchg_ref'), 2, 6), 
     'b_wdraw_is_inhouse'    : F.col('b_wdraw_acquirer_code') == 11072,
-    'b_wdraw_rk_overall'    : F.row_number().over(wdw_account), 
-    'b_wdraw_rk_inhouse'    : F.when(F.col('b_wdraw_is_inhouse'), F.row_number().over(wdw_inhouse)).otherwise(-1), 
+    'b_wdraw_rk_overall'    : F.row_number().over(w_txn_ref), 
+    'b_wdraw_rk_inhouse'    : F.when(F.col('b_wdraw_is_inhouse'), F.row_number().over(w_inhouse)).otherwise(-1), 
     'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') | (F.col('b_wdraw_rk_inhouse') > 3),  
     'b_wdraw_commission_status':  F.when(~F.col('b_wdraw_is_commissionable'), -1)
-                .when(F.col('atpt_mt_posting_date').isNull(), -2).otherwise(0)})
+                    .when(F.col('atpt_mt_posting_date').isNull(), -2).otherwise(0), 
+    'b_txn_rank' : F.row_number().over(w_txn_ref)})
 
 wdraw_cols = ['atpt_mt_eff_date', 'atpt_mt_category_code', 'atpt_acct', 
     'atpt_mt_card_nbr', 'atpt_mt_desc', 'atpt_mt_amount', 
@@ -209,10 +194,26 @@ wdraw_txns_0 = (spark.read.format('delta')
     .filter(F.col('atpt_mt_category_code').isin([6010, 6011])))
 
 # This is potentially a big Set. 
-wdraw_txns = (schema_tools.with_columns(wdraw_txns_0, wdraw_withcols)
+wdraw_txns = (tools.with_columns(wdraw_txns_0, wdraw_withcols)
+    .filter(F.col('b_txn_rank') == 1)
     .select(wdraw_cols))
 
 display(wdraw_txns)
+
+# COMMAND ----------
+
+txns_refs = ["DT230100103000010000001", "DT230100103000010000002", 
+             "DT230100103000010000003", "DT230100103000010000004", 
+             "DT230100103000010000005", "DT230100103000010000006", 
+             "DT230100103000010000007", "DT230100103000010000008"]
+
+wdraw_test_0 = (spark.read.format('delta')
+    .load(atptx_loc)
+    .filter(F.col('atpt_mt_ref_nbr').isin(txns_refs)))
+wdraw_test_1 = tools.with_columns(wdraw_test_0, wdraw_withcols)
+
+
+display(wdraw_test_1)
 
 # COMMAND ----------
 
@@ -230,7 +231,7 @@ display(wdraw_txns)
 
 # Restablecer la tabla de comisiones en caso de experimentación.  
 
-reset_commissions = False
+reset_commissions = True
 if reset_commissions: 
     dbutils.fs.rm(at_commissions, True)
 
@@ -238,12 +239,12 @@ if reset_commissions:
 
 # Obtener las comisiones cobrables.  
 
-# Date frame to consider commissions:  15 days
-since_date = date.today() - delta(COMSNS_FRAME)
+#since_date = date.today() - delta(COMSNS_FRAME)
+since_date = date.today() - delta(1000)
 
 # Since there is nothing to compare against on the first date,  
 # just write it down and check that logic is idempotent. 
-if not DeltaTable.isDeltaTable(spark, at_commissions): 
+if not Δ.isDeltaTable(spark, at_commissions): 
     wdraw_txns.write.format('delta').save(at_commissions)
 
 miscommissions = (spark.read.format('delta').load(at_commissions)
@@ -263,10 +264,18 @@ pre_commissionable = (wdraw_txns
     .select(*join_select, 'status_store', 'status_base'))
    
 commissionable = (pre_commissionable
-    .join(dambs_ref, on='b_account_num', how='left'))
+    .join(dambs_ref, on='b_account_num', how='inner'))
     
 cmsns_summary = pre_commissionable.select(['status_store', 'status_base']).summary('count')
 cmsns_summary.show()
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+display(pre_commissionable.select('b_account_num').distinct())
 
 # COMMAND ----------
 
@@ -276,68 +285,17 @@ cmsns_summary.show()
 
 # COMMAND ----------
 
+from importlib import reload
+from src import core_banking; reload(core_banking)
+from src import tools; reload(tools)
+import config; reload(config)
+reload(core_banking)
+from src.core_banking import SAPSession
+
 core_starter = app_environ.prepare_coresession('qas-sap')
-
-
 core_session = SAPSession(core_starter)
 
 # COMMAND ----------
 
-persons = core_session.call_person_set({'how_many': 50})
-pd_print(persons)
-
-# COMMAND ----------
-
-responses = core_session.call_txns_commissions(commissionable.limit(100), 'atm', **{'how-many': 20})
-
-# COMMAND ----------
-
-# Debugging
-self, accounts_df, cmsn_key, kwargs = core_session, commissionable, 'atm', {'how-many': 5}
-
-from datetime import date
-from itertools import groupby
-from math import ceil
-from pandas.core import frame
-from pyspark.sql import dataframe as spk_df
-from pytz import timezone
-from src.core_models import Fee, FeeSet
-
-API_LIMIT = 200
-cmsn_id, cmsn_name = self.commission_labels[cmsn_key]
-
-by_k = kwargs.get('how-many', API_LIMIT)
-date_str = date.today().strftime('%Y-%m-%d')
-
-if isinstance(accounts_df, frame.DataFrame):
-    row_itr = accounts_df.iterrows()
-    len_df = len(accounts_df)
-
-elif isinstance(accounts_df, spk_df.DataFrame): 
-    row_itr = enumerate(accounts_df.rdd.toLocalIterator())
-    len_df = accounts_df.count()
-
-iter_key = lambda ii_row: ii_row[0]//by_k
-n_grps = ceil(len_df/by_k)
-
-responses = []
-for kk, sub_itr in groupby(row_itr, iter_key): 
-    
-    print(f'Calling group {kk} of {n_grps}.')
-    fees_set   = [Fee(**{
-        'AccountID'  : row[1]['atpt_acct'], 
-        'TypeCode'   : cmsn_id, 
-        'PostingDate': date_str}) for _, row in sub_itr]
-    feeset_obj = FeeSet(**{
-        'ProcessDate': date_str, 
-        'ExternalID' : cmsn_name, 
-        'FeeDetail'  : fees_set})
-    posters = {
-        'url' : f"{self.base_url}/{self.api_calls['fees-apply']}", 
-        'data': feeset_obj.json(exclude_unset=True)}
-    the_resp = self.post(**posters)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 4. Log table
+responses = core_session.call_txns_commissions(
+    commissionable, 'atm', **{'how-many': 50})

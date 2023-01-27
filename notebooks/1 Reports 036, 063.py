@@ -192,9 +192,9 @@ spei_gfb = {
         'receiver_clabe': 'long', 'receiver_rfc': 'str', 'concept': 'str', 'reference': 'str', 
         'tracking_key': 'str', 'uuid': 'str', 'status': 'str'}), 
     'read': {
-        'track_type'      : F.regexp_extract('tracking_key', ref_regex, 1), 
-        'track_date'      : F.regexp_extract('tracking_key', ref_regex, 2),  #.to_date('yyyyMMdd')
-        'track_num2'      : F.regexp_extract('tracking_key', ref_regex, 3),  #.cast(T.Longtype())
+        'track_type'    : F.regexp_extract('tracking_key', ref_regex, 1), 
+        'track_date'    : F.regexp_extract('tracking_key', ref_regex, 2),  #.to_date('yyyyMMdd')
+        'track_num2'    : F.regexp_extract('tracking_key', ref_regex, 3),  #.cast(T.Longtype())
     },
     'mod': {
         'txn_valid'     : F.col('tracking_key').rlike(ref_regex), # Filtrar
@@ -417,7 +417,7 @@ renamers = {
 data_src   = 'subledger'
 pre_files  = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
 ldgr_files = process_files(pre_files, data_src)
-ldgr_files.sort_values('date', ascending=False)
+ldgr_files.sort_values('date', ascending=False).filter()
 
 # COMMAND ----------
 
@@ -764,7 +764,7 @@ except:
 
 # COMMAND ----------
 
-print(f"Dias de reporte, 036~{key_date_ops}, 063~{key_date_spei}.")
+print(f"Dias de reporte (036:{key_date_ops}, 063:{key_date_spei})")
 
 if ldgr_grp is None: 
     print(f"No se encontró FPSL correspondiente a {key_date_ops}.")

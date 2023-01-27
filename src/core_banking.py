@@ -1,17 +1,19 @@
 # Diego Villamil, EPIC
 # CDMX, 4 de noviembre de 2021
 
+from authlib.integrations.requests_client import OAuth2Session
 from datetime import datetime as dt, timedelta as delta, date
-from httpx import AsyncClient, Auth as AuthX
+from httpx import (Client, AsyncClient, 
+    Auth as AuthX, post as postx, BasicAuth as BasicX)
 from itertools import groupby
-from json import dumps, decoder
+from json import dumps, decoder, loads
 from math import ceil
+from operator import itemgetter
 import pandas as pd
 from pandas.core import series, frame 
-import requests
-from requests import auth, exceptions, Session
 from typing import Union
 from pytz import timezone
+from uuid import uuid4
 
 try: 
     from delta.tables import DeltaTable
@@ -31,14 +33,6 @@ from src.utilities import encode64, dict_minus
 
 API_LIMIT = 500
 
-
-
-def str_error(an_error): 
-    try: 
-        a_json = an_error.json()
-        return dumps(a_json, indent=2)
-    except Exception: 
-        return str(an_error)
 
     
 def date_2_pandas(sap_srs: pd.Series, mode='/Date') -> pd.Series:
@@ -85,38 +79,24 @@ def datetime_2_filter(sap_dt, range_how=None) -> str:
     return sap_filter
         
 
-class BearerAuth2(auth.AuthBase, AuthX): 
-    # Funciona para las dos conexiones. 
-    def __init__(self, token_str): 
-        self.token = token_str 
 
-    def auth_flow(self, a_request): 
-        a_request.headers['Authorization'] = f"Bearer {self.token}"
-        yield a_request
-
-    def __call__(self, a_request):
-        a_request.headers['Authorization'] = f"Bearer {self.token}"
-        return a_request
-    
-
-class SAPSession(Session): 
-# INIT from CONFIG.CONFIGENVIRON()
-    def __init__(self, core_obj, set_token=True): 
-        super().__init__()
+class SAPSession(Client): 
+    # INIT from CONFIG.CONFIGENVIRON()
+    def __init__(self, core_obj): 
         self.config     = core_obj['config']
         self.call_dict  = core_obj['call-dict']
         self.get_secret = core_obj['get-secret']
-        self.base_url   = core_obj['config']['main']['url']
-        self.headers.update(self.std_headers)
-        self.set_token()
-        self.set_status_hook()
         
+        super().__init__()
+        self.base_url = core_obj['config']['main']['url']
+        self.set_auth()
+
     # Tech Specs
     std_headers = {
-            'Accept-Encoding' : 'gzip, deflate',
-            'Content-Type'    : 'application/json',
-            'Accept'   : 'application/json',
-            'Format'   : 'json'}
+        'Accept-Encoding' : 'gzip, deflate',
+        'Content-Type'    : 'application/json',
+        'Accept' : 'application/json',
+        'Format' : 'json'}
         
     api_calls = {
         'events-set' : {
@@ -135,16 +115,14 @@ class SAPSession(Session):
     # Business Specs
     commission_labels = {
         'atm': (600405, 'ops-commissions-atm-001')}
-    
-    
+        
+        
     def call_txns_commissions(self, 
-                accounts_df: Union[frame.DataFrame, spk_df.DataFrame], 
-                cmsn_key='atm', **kwargs): 
+            accounts_df: Union[frame.DataFrame, spk_df.DataFrame], 
+            cmsn_key='atm', **kwargs): 
         
-        cmsn_id, cmsn_name = self.commission_labels[cmsn_key]
-        
+        ## Setup. 
         by_k = kwargs.get('how-many', API_LIMIT)
-        date_str = dt.now(tz=timezone('America/Mexico_City')).strftime('%Y-%m-%d')
         
         if isinstance(accounts_df, frame.DataFrame):
             row_itr = accounts_df.iterrows()
@@ -157,42 +135,58 @@ class SAPSession(Session):
         iter_key = lambda ii_row: ii_row[0]//by_k
         n_grps   = ceil(len_df/by_k)
         
+        ## Execution 
+        cmsn_id, cmsn_name = self.commission_labels[cmsn_key]
+        
+        fees_fix = {
+            'TypeCode'   : cmsn_id, 
+            'Currency'   : 'MXN', 
+            'PaymentNote': f"{cmsn_key}, {cmsn_name}"}
+        
         responses = []
-        # Usamos la Response completa, pero seguramente querremos algo más estructurado. 
         for kk, sub_itr in groupby(row_itr, iter_key): 
             print(f'Calling group {kk} of {n_grps}.')
-            fees_set   = [Fee(**{
-                'AccountID'  : row[1]['atpt_acct'], 
-                'TypeCode'   : cmsn_id, 
-                'PostingDate': date_str}) for row in sub_itr]
+            an_id = str(uuid4())
+            now_str = dt.now(tz=timezone('America/Mexico_City')).strftime('%Y%m%d')
+            fees_set = [Fee(**fees_fix, **{
+                'AccountID'  : rr['b_sap_savings'], 
+                'PostingDate': now_str, 
+                'ValueDate'  : now_str}) for _, rr in sub_itr]
             feeset_obj = FeeSet(**{
-                'ProcessDate': date_str, 
-                'ExternalID' : cmsn_name, 
+                'ProcessDate': now_str, 
+                'ExternalID' : an_id, 
                 'FeeDetail'  : fees_set})
             posters = {
-                    'url' : f"{self.base_url}/{self.api_calls['fees-apply']}", 
+                    'url' : f"{self.api_calls['fees-apply']}", 
                     'data': feeset_obj.json()}
-            try: 
-                the_resp = self.post(**posters)
-            except Exception as ex: 
-                the_resp = {'Error': feeset_obj}
-            responses.append(the_resp)            
+            the_resp = self.post(**posters)
+            responses.append(the_resp)     
         return responses
     
     
-    def call_person_set(self, params={}, **kwargs): 
+    def pos_txn_commission(self, txn_resp): 
+        if txn_resp.status_code == 201: 
+            feeseters = ['ProcessDate', 'ExternalID']
+            post_args = txn_resp.json()['d']
+            the_fees  = loads(txn_resp.request.content)['FeeDetail']
+        
+        
+    def call_person_set(self, params_x={}, **kwargs): 
         # Remove Keys from response list. 
         output   = kwargs.get('output',  'DataFrame')
         how_many = kwargs.get('how_many', API_LIMIT)
         rm_keys  = ['__metadata', 'Roles', 'TaxNumbers', 'Relation', 'Partner', 'Correspondence']
         
-        params_0 = {'$top': how_many, '$skip': 0}
-        params_0.update(params)
-
+        params = {'$top': how_many, '$skip': 0}
+        params.update(params_x)
+        p_getters = {
+            'url'   : self.api_calls['person-set'], 
+            'params': params}  # pass as reference, ;)
+        
         post_persons   = []
         post_responses = []
         while True:
-            prsns_resp = self.get(f"{self.base_url}/{self.api_calls['person-set']}", params=params_0)
+            prsns_resp = self.get(p_getters)
             post_responses.append(prsns_resp)
             if output == 'Response': 
                 return 
@@ -200,7 +194,7 @@ class SAPSession(Session):
             prsns_ls = self.hook_d_results(prsns_resp)
             post_persons.extend(prsns_ls)
             
-            params_0['$skip'] += len(prsns_ls)
+            params['$skip'] += len(prsns_ls)
             if (len(prsns_ls) < how_many) : 
                 break
         
@@ -219,65 +213,55 @@ class SAPSession(Session):
         
         else: 
             raise Exception(f'Output {output} is not valid.')
-        
-    
-    def set_token(self, verbose=0): 
-        posters = {
+
+            
+    def set_auth(self): 
+        auth_args = {
             'url' : self.config['auth']['url'], 
             'data': self.call_dict(self.config['auth']['data']), 
-            'auth': auth.HTTPBasicAuth(**self.call_dict(self.config['main']['access'])), 
+            'auth': BasicX(**self.call_dict(self.config['main']['access'])),
             'headers': {'Content-Type': "application/x-www-form-urlencoded"}
         }
+        self.auth = SAPAuth('any_wrong_token', auth_args)
         
-        # This POST is independent of the session itself; 
-        # hence called from REQUESTS, instead of SELF. 
-        the_resp = requests.post(**posters)
-        
-        if verbose > 0: 
-            print(f"Status Code: {the_resp.status_code}")
-            
-        if the_resp.status_code == 200: 
-            self.token = the_resp.json()
-            self.auth  = BearerAuth2(self.token['access_token'])
-        else: 
-            if verbose > 0:
-                print(f"Post request headers: {the_resp.request.headers}")
-            raise Exception(f"Error Authenticating; STATUS_CODE: {the_resp.status_code}")
-            
-        
-    def set_status_hook(self, auth_tries=3): 
-        def status_hook(response, *args, **kwargs): 
-            response_1 = response
-            for ii in range(auth_tries): 
-                if response_1.status_code == 200: 
-                    break
-                elif response_1.status_code == 401: 
-                    self.set_token()
-                    response_1 = self.send(response.request)
-                    continue
-                else: 
-                    response_1.raise_for_status()
-            return response_1
-        
-        self.hooks['response'].append(status_hook)
-    
     
     def hook_d_results(self, response): 
         hook_allowed_types = ['application/json', 'application/atom+xml']
         
         the_type = response.headers['Content-Type']
-        if 'application/json' in the_type: 
+        if   'application/json' in the_type: 
             the_json = response.json()
             the_results = the_json['d']['results']
         elif 'application/atom+xml' in the_type: 
-            the_results = self._xml_results(response.text)
+            the_results = _xml_results(response.text)
         else: 
             raise Exception(f"Couldn't extract results from response with content type '{the_type}'.")
             
         return the_results
         
-   
-    def _xml_results(self, xml_text): 
+
+    def update_token(token, refresh_token, access_token): 
+        auth_args = {
+            'url' : self.config['auth']['url'], 
+            'data': self.call_dict(self.config['auth']['data']), 
+            'auth': BasicX(**self.call_dict(self.config['main']['access'])),
+            'headers': {'Content-Type': "application/x-www-form-urlencoded"}
+        }
+        j_token = postx(**auth_args).json()
+        self.auth = Bearer2(j_token['access_token'])
+        
+    
+    
+
+def str_error(an_error): 
+    try: 
+        a_json = an_error.json()
+        return dumps(a_json, indent=2)
+    except Exception: 
+        return str(an_error)
+
+
+def _xml_results(xml_text): 
         get_entry_ds = (lambda entry_dict: 
             {re.sub(r'^d\:', '', k_p): v_p 
             for k_p, v_p in entry_dict.items() if k_p.startswith('d:')})
@@ -288,11 +272,33 @@ class SAPSession(Session):
         return entry_rslts
 
 
+class SAPAuth(AuthX): 
+    def __init__(self, token, post_args):
+        self.token = token
+        self.post_args = post_args
     
+    def auth_flow(self, request):
+        response = yield request
+        if response.status_code == 401:
+            j_token = postx(**self.post_args).json()
+            self.token = j_token['access_token']
+            request.headers['Authorization'] = f"Bearer {self.token}"
+            yield request
+            
+    
+class Bearer2(AuthX): 
+    # Funciona para las dos conexiones. 
+    def __init__(self, token_str): 
+        self.token = token_str 
 
+    def auth_flow(self, a_request): 
+        a_request.headers['Authorization'] = f"Bearer {self.token}"
+        yield a_request
 
+    def __call__(self, a_request):
+        a_request.headers['Authorization'] = f"Bearer {self.token}"
+        return a_request
+
+        
     
-    
-    
-    
-    
+ 

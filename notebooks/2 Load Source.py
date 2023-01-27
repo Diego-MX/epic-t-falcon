@@ -39,30 +39,32 @@
 
 # COMMAND ----------
 
-view_tables = True
-
-# COMMAND ----------
-
 # MAGIC %pip install -r ../reqs_dbks.txt
 
 # COMMAND ----------
 
+from azure.identity import ClientSecretCredential
+from azure.storage.blob import BlobServiceClient
 from datetime import datetime as dt, date, timedelta as delta
-from delta.tables import DeltaTable
+from delta.tables import DeltaTable as Δ
 import glob
 from itertools import product
 import numpy as np
 from os import listdir
 import pandas as pd
-from pandas.core.frame import DataFrame
+from pandas import DataFrame as pd_DF
+from pyspark.sql import (DataFrame as spk_DF, 
+    functions as F, types as T, Window as W)
+from pathlib import Path
 import re
 
-from azure.identity import ClientSecretCredential
-from azure.storage.blob import BlobServiceClient
-from pyspark.sql import functions as F, types as T
-from pyspark.sql.window import Window as W
 
-import src.schema_tools as src_spk
+# COMMAND ----------
+
+from importlib import reload
+import config; reload(config)
+from src import tools, utilities as src_utils; reload(tools); reload(src_utils)
+
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, 
     DATALAKE_PATHS as paths, 
@@ -75,25 +77,8 @@ app_environ.sparktransfer_credential()
 read_from = f"{paths['abfss'].format('bronze', resources['storage'])}/{paths['prepared']}"  
 write_to  = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['datasets']}"  
 
-
-def pd_print(a_df: DataFrame, width=180): 
-    options = ['display.max_rows', None, 
-               'display.max_columns', None, 
-               'display.width', width]
-    with pd.option_context(*options):
-        print(a_df)
-
-        
-def len_cols(cols_df: DataFrame) -> int: 
-    req_cols = set(['aux_fill', 'Length'])
-    
-    if not req_cols.issubset(cols_df.columns): 
-        raise "COLS_DF is assumed to have attributes 'AUX_FILL', 'LENGTH'."
-    
-    last_fill = cols_df['aux_fill'].iloc[-1]
-    up_to = -1 if last_fill else len(cols_df)
-    the_len = cols_df['Length'][:up_to].sum()
-    return int(the_len)
+layouts_dir = "/dbfs/FileStore/transformation-layer/layouts"
+dbutils.fs.mkdirs(layouts_dir)
 
 # COMMAND ----------
 
@@ -110,71 +95,127 @@ def len_cols(cols_df: DataFrame) -> int:
 
 # COMMAND ----------
 
-# Usa las variables: DELTA_KEYS, READ_FROM, WRITE_TO
-def predelta_from_key(a_key, get_schema=False): 
-    b_key  = delta_keys[a_key][0]
-    a_file = delta_keys[a_key][1]
-    
-    the_dir   = f"{read_from}/{a_key}" 
-    dtls_file = f"../refs/catalogs/{b_key}_detail.feather"
-    hdrs_file = f"../refs/catalogs/{b_key}_header.feather"
-    trlr_file = f"../refs/catalogs/{b_key}_trailer.feather"
-
-    dtls_df = pd.read_feather(dtls_file)
-    hdrs_df = pd.read_feather(hdrs_file)
-    trlr_df = pd.read_feather(trlr_file)
-    
-    dtls_df['name'] = dtls_df['name'].str.replace(')', '', regex=False)
-    
-    delta_loc = f"{write_to}/{a_file}/delta"
-    
-    up_to_len = max(len_cols(hdrs_df), len_cols(trlr_df))  # Siempre son (47, 56)
-    longer_rows = (F.length(F.rtrim(F.col('value'))) > up_to_len)
-
-    delta_exists = DeltaTable.isDeltaTable(spark, delta_loc)
-    if delta_exists: 
-        max_modified = (spark.read.format('delta')
-            .load(delta_loc)
-            .select(F.max('file_modified'))
-            .collect()[0][0])
-    else: 
-        max_modified = date(2020, 1, 1)
-
-    meta_cols = [('_metadata.file_name', 'file_path'), 
-        ('_metadata.file_modification_time', 'file_modified')]
-    
-    prep_dtls     = src_spk.colsdf_prepare(dtls_df)
-    the_selectors = src_spk.colsdf_2_select(prep_dtls, 'value')  # 1-substring, 2-typecols, 3-sorted
-    
-    pre_delta = (spark.read.format('text')
-        .option('recursiveFileLookup', 'true')
-        .option('header', 'true')
-        .load(the_dir, modifiedAfter=max_modified)
-        .select('value', *[F.col(a_col[0]).alias(a_col[1]) for a_col in meta_cols]))
-    
-    a_delta = (pre_delta
-        .withColumn('file_date', F.to_date(
-                F.regexp_extract(F.col('file_path'), '(20[0-9/]+)', 1), 'yyyy/MM/dd'))
-        .filter(longer_rows)
-        .select(*[a_col[1] for a_col in meta_cols], *the_selectors['1-substring'])
-        .select(*[a_col[1] for a_col in meta_cols], *the_selectors['2-typecols' ]))
-    
-    if get_schema: 
-        the_schema = src_spk.colsdf_2_schema(prep_dtls)
-        delta_tbl = (a_delta, the_schema)
-    else: 
-        delta_tbl = (a_delta)
-    
-    return delta_tbl
-
+a_dir = 'abfss://bronze@stlakehyliaqas.dfs.core.windows.net/ops/regulatory/card-management/transformation-layer/layouts'
+src_utils.dirfiles_df(a_dir, spark)
 
 # COMMAND ----------
 
-# MAGIC %md 
-# MAGIC ## Debug Section
-# MAGIC 
-# MAGIC Use this section to copy-paste code lines that are not working as expected:  
-# MAGIC Use `if True: ...` to run the code, or change to `if False: ...` to prevent it from running via Jobs.  
+# Usa las variables: DELTA_KEYS, READ_FROM, WRITE_TO
+
+meta_cols = [('_metadata.file_name', 'file_path'), 
+             ('_metadata.file_modification_time', 'file_modified')]
+
+def prepare_sourcer(a_key, force=False): 
+    try: 
+        b_key = delta_keys[a_key][0]
+        blobber_file = f"{paths['from-cms']}/layouts/{b_key}_{{}}_latest.feather" 
+        temper_file  = f"{layouts_dir}/{b_key}_{{}}.feather" 
+        
+        for type_tbl in ['detail', 'header', 'trailer']: 
+            app_environ.downoad_storage_blob(temper_file.format(type_tbl), 
+                    blobber_file.format(type_tbl), 'bronze')
+        
+        dtls_file = f"{layouts_dir}/{b_key}_detail.feather"
+        hdrs_df = pd.read_feather(f"{layouts_dir}/{b_key}_header.feather")
+        trlr_df = pd.read_feather(f"{layouts_dir}/{b_key}_trailer.feather")
+        
+        dtls_df = (df.read_feather(dtls_file)
+            .assign(name = lambda df: 
+                    df['name'].str.replace(')', '', regex=False)))
+        
+        # Centralizar a todos los archivos. 
+        up_to_len = max(src_utils.len_cols(hdrs_df), src_utils.len_cols(trlr_df))  
+        # Siempre son (47, 56)
+        
+        prep_dtls     = tools.colsdf_prepare(dtls_df)
+        the_selectors = tools.colsdf_2_select(prep_dtls, 'value')  # 1-substring, 2-typecols, 3-sorted
+        
+        the_selectors['long_rows'] = (F.length(F.rtrim(F.col('value'))) > up_to_len)
+        return (1, the_selectors)
+    
+    except Exception as xcpt: 
+        if not force: 
+            raise Exception(xcpt)
+        return (-1, str(xcpt))
+    
+
+def read_delta_basic(a_key, force=False) -> spk_DF: 
+    try: 
+        a_file = delta_keys[a_key][1]
+        Δ_path = f"{write_to}/{a_file}/delta"
+        the_dir = f"{read_from}/{a_key}" 
+
+        if Δ.isDeltaTable(spark, Δ_path): 
+            max_modified = (spark.read.format('delta')
+                .load(Δ_path)
+                .select(F.max('file_modified'))
+                .collect()[0][0])
+        else: 
+            max_modified = date(2020, 1, 1)
+
+        pre_delta = (spark.read.format('text')
+            .option('recursiveFileLookup', 'true')
+            .option('encoding', 'iso-8859-3') 
+            .option('header', 'true')
+            .load(the_dir, modifiedAfter=max_modified)
+            .select('value', *[F.col(a_col[0]).alias(a_col[1]) 
+                    for a_col in meta_cols]))
+        return (1, pre_delta)
+    
+    except Exception as xcpt: 
+        if not force: 
+            raise Exception(xcpt)
+        return (-2, str(xcpt))
+
+    
+def delta_with_sourcer(df_0: spk_DF, sourcer, 
+        get_schema=False, force=False) -> spk_DF: 
+    try: 
+        meta_keys = ['file_path', 'file_modified', 'file_date']
+        
+        a_delta = (df_0
+            .withColumn('file_date', F.to_date(F.col('file_modified'), 'yyyy-MM-dd'))
+            .filter(sourcer['long_rows'])
+            .select(*meta_keys, *sourcer['1-substring'])
+            .select(*meta_keys, *sourcer['2-typecols' ]))
+        
+        if get_schema: 
+            the_schema = tools.colsdf_2_schema(prep_dtls)
+            delta_tbl = (a_delta, the_schema)
+        else: 
+            delta_tbl = (a_delta)
+        return (1, delta_tbl)
+    
+    except Exception as xcpt: 
+        if not force: 
+            raise Exception(xcpt) 
+        return (-3, str(xcpt))
+    
+    
+def write_fiserv_delta(df_0, a_key): 
+    try: 
+        _, key_2, tbl_name = delta_keys[a_key]
+        a_path = f"{write_to}/{key_2}/delta"
+        
+        (df_0.write.format('delta')
+            .mode('append')
+            .option('mergeSchema', 'true')
+            .save(a_path))
+        
+        return (1, a_path)
+    except Exception as xcpt: 
+        if not force: 
+            raise Exception(str(xcpt))
+        return (-4, str(xcpt))
+
+    
+def reset_fiserv_delta(a_key): 
+    _, key_2, tbl_name = delta_keys[a_key]
+    a_path = f"{write_to}/{key_2}/delta"
+
+    dbutils.fs.rm(a_path, recurse=True)
+
+    
 
 # COMMAND ----------
 
@@ -183,108 +224,52 @@ def predelta_from_key(a_key, get_schema=False):
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ### DAMNA
+write_Δ = True
+
+table_keys = ['DAMNA', 'ATPTX', 'DAMBS1', 'DAMBS2', 'DAMBSC']
+readies_Δ  = {}
+
+for a_key in table_keys[:]: 
+    print(a_key)
+    (status_1, sourcer) = prepare_sourcer(a_key)
+        
+    (status_2, pre_Δ) = read_delta_basic(a_key)
+    
+    (status_3, ref_Δ) = delta_with_sourcer(pre_Δ, sourcer)
+        
+    readies_Δ[a_key] = ref_Δ
+    write_fiserv_delta(ref_Δ, a_key)
+    
 
 # COMMAND ----------
 
-key_1 = 'DAMNA'
-
-damna_delta, damna_schema = predelta_from_key(damna_key, get_schema=True)
-
-_, key_2, tbl_name = delta_keys[key_1]
-a_path = f"{write_to}/{key_2}/delta"
-
-(damna_delta.write.format('delta')
-    .mode('append')
-    .option('mergeSchema', 'true')
-    .save(a_path))
-
-display(damna_delta)
-
+display(ref_Δ)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ### ATPTX
+enc_detector = False
+if enc_detector: 
+    import chardet
+    
+    a_dir = Path("/dbfs/FileStore/transformation-layer/tmp_unzipped")
+    a_file = a_dir/"DAMBS101_2022-04-10"
+
+    blob = a_file.read_bytes()
+    detection = chardet.detect(blob)
+    encoding  = detection["encoding"]
+    confidence = detection["confidence"]
+    print(f"""
+        Encoding: {encoding}
+        Confidence: {confidence}
+    """)
 
 # COMMAND ----------
 
-key_1  = 'ATPTX'
-_, key_2, tbl_name = delta_keys[key_1]
+reset_deltas = False
+# Return back to False, after resetting. 
 
-a_path = f"{write_to}/{key_2}/delta"
-
-a_delta = predelta_from_key(key_1)
-
-(a_delta.write.format('delta')
-    .mode('append')
-    .option('mergeSchema', 'true')
-    .save(a_path))
-
-display(a_delta)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### DAMBS1
-
-# COMMAND ----------
-
-key_1  = 'DAMBS1'
-_, key_2, tbl_name = delta_keys[key_1]
-a_path = f"{write_to}/{dambs1_file}/delta"
-
-dambs1_delta = predelta_from_key(dambs1_key)
-
-(dambs1_delta
-    .write.format('delta')
-    .mode('append')
-    .option('mergeSchema', 'true')
-    .save(a_path))
-
-display(dambs1_delta)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### DAMBS2
-
-# COMMAND ----------
-
-key_1  = 'DAMBS2'
-_, key_2, tbl_name = delta_keys[dambs2_key]
-
-a_path = f"{write_to}/{key_2}/delta"
-
-dambs2_delta, dambs2_schema = predelta_from_key(key_1, get_schema=True)
-
-(dambs2_delta.write.format('delta')
-    .mode('append')
-    .option('mergeSchema', 'true')
-    .save(a_path))
-
-display(dambs2_delta)
-
-
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### DAMBSC
-
-# COMMAND ----------
-
-key_1  = 'DAMBSC'
-_, key_2, tbl_name = delta_keys[key_1]
-
-a_path = f"{write_to}/{key_2}/delta"
-
-dambsc_delta = predelta_from_key(key_1)
-
-(dambsc_delta.write.format('delta')
-    .mode('append')
-    .option('mergeSchema', 'true')
-    .save(a_path))
-
-display(dambsc_delta)
+if reset_deltas: 
+    remove_keys = ['DAMBS1', 'DAMBS2', 'DAMBSC', 'DAMNA', 'ATPTX']  #
+    for a_key in remove_keys:
+        reset_fiserv_delta(a_key)
+    

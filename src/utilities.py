@@ -62,31 +62,26 @@ def file_exists(a_path: str):
         else:
             raise Exception("Can't find file {a_path}.")
 
-    
 
-def write_datalake(a_df: Union[spk_DF, pd_DF, series.Series], 
-        a_path, container=None, overwrite=False, spark=None): 
-    
-    if isinstance(a_df, spk_DF):
-        dbutils = DBUtils(spark)
-        if file_exists(a_path): 
-            dbutils.fs.rm(a_path)
-        
-        pre_path = re.sub(r'\.csv$', '', a_path)
-        a_df.coalesce(1).write.format('csv').save(pre_path)
-        
-        path_000 = [ff.path for ff in dbutils.fs.ls(pre_path) 
-                if re.match(r'.*000\.csv$', ff.name)][0]
-        dbutils.fs.cp(path_000, a_path)
-        dbutils.fs.rm(pre_path, recurse=True)
 
-    elif isinstance(a_df, (pd_DF, series.Series)):
-        if container is None: 
-            raise "Valid Container is required"
-            
-        the_blob = container.get_blob_client(a_path)
-        to_index = {pd_DF: False, series.Series: True}
+def pd_print(a_df: pd_DF, width=180): 
+    options = ['display.max_rows', None, 
+               'display.max_columns', None, 
+               'display.width', width]
+    with pd.option_context(*options):
+        print(a_df)
+
         
-        str_df = a_df.to_csv(index=to_index[type(a_df)], encoding='utf-8')
-        the_blob.upload_blob(str_df, encoding='utf-8', overwrite=overwrite)
+def len_cols(cols_df: pd_DF) -> int: 
+    # Ya ni me acuerdo para que sirve. 
+    req_cols = set(['aux_fill', 'Length'])
+    
+    if not req_cols.issubset(cols_df.columns): 
+        raise "COLS_DF is assumed to have attributes 'AUX_FILL', 'LENGTH'."
+    
+    last_fill = cols_df['aux_fill'].iloc[-1]
+    up_to = -1 if last_fill else len(cols_df)
+    the_len = cols_df['Length'][:up_to].sum()
+    return int(the_len)
+    
     

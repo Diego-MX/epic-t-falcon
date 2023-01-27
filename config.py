@@ -57,7 +57,6 @@ RESOURCE_SETUP = {
 }
 
 
-
 CORE_SETUP = {
     # MAIN y AUTH se usan diferentes en las APIs de SAP. 
     # ... cuidado con (USERNAME, PASSWORD) de cada uno. 
@@ -91,8 +90,8 @@ CORE_SETUP = {
 # Env-independent Usage Variables. 
 
 DATALAKE_PATHS = {
-    'blob'         : "https://{}.blob.core.windows.net/",   # STORAGE
-    'abfss'        : "abfss://{}@{}.dfs.core.windows.net",  # CONTAINER(bronze|silver|gold), STORAGE
+    'blob'         : "https://{}.blob.core.windows.net",    # STORAGE
+    'abfss'        : "abfss://{}@{}.dfs.core.windows.net",   # CONTAINER(bronze|silver|gold), STORAGE
     'btp'          : "ops/fraude/bronze/btp",                # ¿?
     'spei'         : "ops/transactions/spei",                # ¿?
     'spei2'        : "ops/fraude/bronze/spei",               # SPEI (original y conciliación)
@@ -284,7 +283,7 @@ class ConfigEnviron():
             pre_confs = {
                 f"fs.azure.account.auth.type.{blob_key}.dfs.core.windows.net"           : 'OAuth',
                 f"fs.azure.account.oauth.provider.type.{blob_key}.dfs.core.windows.net" : "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
-                f"fs.azure.account.oauth2.client.endpoint.{blob_key}.dfs.core.windows.net" : oauth2_endpoint,
+                f"fs.azure.account.oauth2.client.endpoint.{blob_key}.dfs.core.windows.net": oauth2_endpoint,
                 f"fs.azure.account.oauth2.client.id.{blob_key}.dfs.core.windows.net"    : sp_dict['client_id'],
                 f"fs.azure.account.oauth2.client.secret.{blob_key}.dfs.core.windows.net": sp_dict['client_secret']}
         elif gen_value == 'gen1': 
