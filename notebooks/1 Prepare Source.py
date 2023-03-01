@@ -50,6 +50,10 @@ from pathlib import Path
 import re
 from zipfile import ZipFile, BadZipFile
 
+# COMMAND ----------
+
+from importlib import reload
+from src import utilities; reload(utilities)
 
 # COMMAND ----------
 
@@ -70,16 +74,6 @@ blob_path = paths['blob' ].format(resources['storage'])
 abfss_read  = f"{abfss_brz}/{paths['from-cms']}"
 abfss_write = f"{abfss_brz}/{paths['prepared']}"
 
-
-def dbks_path(a_path: Path): 
-    a_str = str(a_path)
-    if re.match(r'^(abfss|dbfs|file):', a_str): 
-        b_str = re.sub(':/', '://', a_str)
-    else: 
-        b_str = a_str 
-    return b_str
-    
-
 # COMMAND ----------
 
 #%% About the files in question: 
@@ -99,7 +93,8 @@ to_unzip    = "/dbfs/FileStore/transformation-layer/tmp_unzipped"
 #%% Working with the datalake. 
 
 blob_container = ContainerClient(blob_path, 'bronze', app_env.credential) 
-dirfiles_df(abfss_read, spark)
+read_df = dirfiles_df(abfss_read, spark)
+read_df
 
 # COMMAND ----------
 
@@ -115,7 +110,7 @@ filenames_0 = [filish.name
     for filish in dbutils.fs.ls(abfss_read)]
 
 # Detect
-file_regex = r"([A-Z_0-9]*?)_([0-9\-]*)\.ZIP"
+file_regex = r"([A-Z_0-9]*?)_(20[0-9\-]{8})\.ZIP"
 filenames_1 = [(a_name,) + re.match(file_regex, a_name).groups() 
     for a_name in filenames_0 if re.match(file_regex, a_name)]
 
@@ -127,7 +122,7 @@ labels_0 = set(fl_lb[1] for fl_lb in filenames_1)
 
 if set(reg_labels) != labels_0: 
     raise "File Labels are not as expected."
-
+    
     
 blobnames_0 = [re.sub(paths['prepared']+'/', '', b_name)
     for b_name in blob_container.list_blob_names(name_starts_with=paths['prepared'])
@@ -142,12 +137,9 @@ blobnames_1 = {z_name: t_name
 # Rutas de archivo temporales: variables globales
 # TO_DOWNLOAD, TO_UNZIP.  
 
+
 def _download_blob(a_file): 
-    zip_regex  = r"[A-Z]*_[A-Z]*_([A-Z0-9]*_[0-9\-]*)\.ZIP"
-    
     try: 
-        a_match = re.match(zip_regex, a_file)
-    
         blob_in = f"{paths['from-cms']}/{a_file}"
         the_blob = blob_container.get_blob_client(blob_in)
 
@@ -168,14 +160,15 @@ def _extract_file(a_file):
     
     except Exception as expt: 
         return -2
-    
 
+    
+zip_regex  = r"[A-Z]*_[A-Z]*_([A-Z0-9]*_20[0-9\-]{8})\.ZIP"
 def _upload_to_blob(a_file): 
     try: 
-        write_as = filenames_2[a_file]
         a_match  = re.match(zip_regex, a_file)
         b_file   = a_match.group(1)
-
+        
+        write_as = filenames_2[a_file]
         the_blob = blob_container.get_blob_client(f"{paths['prepared']}/{write_as}")
         with open(f"{to_unzip}/{b_file}", 'rb') as _f: 
             the_blob.upload_blob(_f)
@@ -187,7 +180,9 @@ def _upload_to_blob(a_file):
 
 # COMMAND ----------
 
-detect_encoding = True
+## ¡¡Ejecutar y regresar a False!!
+detect_encoding = False
+
 if detect_encoding:
     from pathlib import Path
     from chardet import detect
@@ -228,12 +223,3 @@ for (ii, a_file) in enumerate(blobnames_1):
     if status_3 != 1: 
         unprocessed.append((status_3, a_file))
 
-
-# COMMAND ----------
-
-    (ii, a_file) = list(enumerate(blobnames_1))[10]
-    
-    status_1 = _download_blob(a_file)
-
-    status_2 = _extract_file(a_file)
- 

@@ -27,6 +27,10 @@
 # MAGIC - **Iniciación**  
 # MAGIC   Es para definir las tablas en el _metastore_ una vez que fueron guardadas en el _datalake_.   
 # MAGIC   Cabe mencionar que no afecta la etapa de Ejecución.  
+# MAGIC   
+# MAGIC Los Extracts de Fiserv están en [este link][sharepoint].  
+# MAGIC 
+# MAGIC [sharepoint]: https://bineomex.sharepoint.com/:x:/r/sites/Ops-DocsValidation/Documentos%20compartidos/2%20CMS-Fiserv/Data%20Extracts.xlsx?d=w10ddf5ab755b4ea28367699379df4cc2&csf=1&web=1&e=e14qAT
 
 # COMMAND ----------
 
@@ -50,7 +54,7 @@ from delta.tables import DeltaTable as Δ
 import glob
 from itertools import product
 import numpy as np
-from os import listdir
+from os import listdir, makedirs
 import pandas as pd
 from pandas import DataFrame as pd_DF
 from pyspark.sql import (DataFrame as spk_DF, 
@@ -64,6 +68,7 @@ import re
 from importlib import reload
 import config; reload(config)
 from src import tools, utilities as src_utils; reload(tools); reload(src_utils)
+from src import sftp_sources as sftp_src; reload(sftp_src)
 
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, 
@@ -77,8 +82,8 @@ app_environ.sparktransfer_credential()
 read_from = f"{paths['abfss'].format('bronze', resources['storage'])}/{paths['prepared']}"  
 write_to  = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['datasets']}"  
 
-layouts_dir = "/dbfs/FileStore/transformation-layer/layouts"
-dbutils.fs.mkdirs(layouts_dir)
+# Se requiere crear esta carpeta si no existe. 
+# makedirs(tmp_layouts)
 
 # COMMAND ----------
 
@@ -95,127 +100,17 @@ dbutils.fs.mkdirs(layouts_dir)
 
 # COMMAND ----------
 
-a_dir = 'abfss://bronze@stlakehyliaqas.dfs.core.windows.net/ops/regulatory/card-management/transformation-layer/layouts'
-src_utils.dirfiles_df(a_dir, spark)
+def write_fiserv_delta(df_0, a_path): 
+    (df_0.write.format('delta')
+        .mode('append')
+        .option('mergeSchema', 'true')
+        .save(a_path))
+    return a_path
 
-# COMMAND ----------
 
-# Usa las variables: DELTA_KEYS, READ_FROM, WRITE_TO
-
-meta_cols = [('_metadata.file_name', 'file_path'), 
-             ('_metadata.file_modification_time', 'file_modified')]
-
-def prepare_sourcer(a_key, force=False): 
-    try: 
-        b_key = delta_keys[a_key][0]
-        blobber_file = f"{paths['from-cms']}/layouts/{b_key}_{{}}_latest.feather" 
-        temper_file  = f"{layouts_dir}/{b_key}_{{}}.feather" 
-        
-        for type_tbl in ['detail', 'header', 'trailer']: 
-            app_environ.downoad_storage_blob(temper_file.format(type_tbl), 
-                    blobber_file.format(type_tbl), 'bronze')
-        
-        dtls_file = f"{layouts_dir}/{b_key}_detail.feather"
-        hdrs_df = pd.read_feather(f"{layouts_dir}/{b_key}_header.feather")
-        trlr_df = pd.read_feather(f"{layouts_dir}/{b_key}_trailer.feather")
-        
-        dtls_df = (df.read_feather(dtls_file)
-            .assign(name = lambda df: 
-                    df['name'].str.replace(')', '', regex=False)))
-        
-        # Centralizar a todos los archivos. 
-        up_to_len = max(src_utils.len_cols(hdrs_df), src_utils.len_cols(trlr_df))  
-        # Siempre son (47, 56)
-        
-        prep_dtls     = tools.colsdf_prepare(dtls_df)
-        the_selectors = tools.colsdf_2_select(prep_dtls, 'value')  # 1-substring, 2-typecols, 3-sorted
-        
-        the_selectors['long_rows'] = (F.length(F.rtrim(F.col('value'))) > up_to_len)
-        return (1, the_selectors)
-    
-    except Exception as xcpt: 
-        if not force: 
-            raise Exception(xcpt)
-        return (-1, str(xcpt))
-    
-
-def read_delta_basic(a_key, force=False) -> spk_DF: 
-    try: 
-        a_file = delta_keys[a_key][1]
-        Δ_path = f"{write_to}/{a_file}/delta"
-        the_dir = f"{read_from}/{a_key}" 
-
-        if Δ.isDeltaTable(spark, Δ_path): 
-            max_modified = (spark.read.format('delta')
-                .load(Δ_path)
-                .select(F.max('file_modified'))
-                .collect()[0][0])
-        else: 
-            max_modified = date(2020, 1, 1)
-
-        pre_delta = (spark.read.format('text')
-            .option('recursiveFileLookup', 'true')
-            .option('encoding', 'iso-8859-3') 
-            .option('header', 'true')
-            .load(the_dir, modifiedAfter=max_modified)
-            .select('value', *[F.col(a_col[0]).alias(a_col[1]) 
-                    for a_col in meta_cols]))
-        return (1, pre_delta)
-    
-    except Exception as xcpt: 
-        if not force: 
-            raise Exception(xcpt)
-        return (-2, str(xcpt))
-
-    
-def delta_with_sourcer(df_0: spk_DF, sourcer, 
-        get_schema=False, force=False) -> spk_DF: 
-    try: 
-        meta_keys = ['file_path', 'file_modified', 'file_date']
-        
-        a_delta = (df_0
-            .withColumn('file_date', F.to_date(F.col('file_modified'), 'yyyy-MM-dd'))
-            .filter(sourcer['long_rows'])
-            .select(*meta_keys, *sourcer['1-substring'])
-            .select(*meta_keys, *sourcer['2-typecols' ]))
-        
-        if get_schema: 
-            the_schema = tools.colsdf_2_schema(prep_dtls)
-            delta_tbl = (a_delta, the_schema)
-        else: 
-            delta_tbl = (a_delta)
-        return (1, delta_tbl)
-    
-    except Exception as xcpt: 
-        if not force: 
-            raise Exception(xcpt) 
-        return (-3, str(xcpt))
-    
-    
-def write_fiserv_delta(df_0, a_key): 
-    try: 
-        _, key_2, tbl_name = delta_keys[a_key]
-        a_path = f"{write_to}/{key_2}/delta"
-        
-        (df_0.write.format('delta')
-            .mode('append')
-            .option('mergeSchema', 'true')
-            .save(a_path))
-        
-        return (1, a_path)
-    except Exception as xcpt: 
-        if not force: 
-            raise Exception(str(xcpt))
-        return (-4, str(xcpt))
-
-    
-def reset_fiserv_delta(a_key): 
-    _, key_2, tbl_name = delta_keys[a_key]
-    a_path = f"{write_to}/{key_2}/delta"
-
-    dbutils.fs.rm(a_path, recurse=True)
-
-    
+def reset_fiserv_delta(b_key): 
+    a_path = f"{write_to}/{b_key}/delta"
+    dbutils.fs.rm(a_path, True)
 
 # COMMAND ----------
 
@@ -224,26 +119,37 @@ def reset_fiserv_delta(a_key):
 
 # COMMAND ----------
 
-write_Δ = True
-
-table_keys = ['DAMNA', 'ATPTX', 'DAMBS1', 'DAMBS2', 'DAMBSC']
-readies_Δ  = {}
-
-for a_key in table_keys[:]: 
-    print(a_key)
-    (status_1, sourcer) = prepare_sourcer(a_key)
-        
-    (status_2, pre_Δ) = read_delta_basic(a_key)
-    
-    (status_3, ref_Δ) = delta_with_sourcer(pre_Δ, sourcer)
-        
-    readies_Δ[a_key] = ref_Δ
-    write_fiserv_delta(ref_Δ, a_key)
-    
+from importlib import reload
+reload(sftp_src)
 
 # COMMAND ----------
 
-display(ref_Δ)
+write_Δ   = True
+from_blob = False
+
+local_layouts = "/dbfs/FileStore/transformation-layer/layouts"
+
+if from_blob: 
+    blob_path = f"{paths['from-cms']}/layouts"
+    sftp_src.update_sourcers(app_environ, blob_path, local_layouts)
+    
+# 'DAMNA' presenta problemas de escritura.
+table_keys = ['ATPTX', 'DAMBS1', 'DAMBS2', 'DAMBSC']
+
+readies_Δ  = {}
+for a_key in table_keys[:]: 
+    b_key  = delta_keys[a_key][1]
+    in_dir = f"{read_from}/{a_key}" 
+    Δ_path = f"{write_to }/{b_key}/delta"
+    
+    print(a_key, b_key)
+    sourcer = sftp_src.prepare_sourcer(b_key, local_layouts)
+    pre_Δ   = sftp_src.read_delta_basic(spark, in_dir)
+    ref_Δ   = sftp_src.delta_with_sourcer(pre_Δ, sourcer)
+    
+    readies_Δ[a_key] = ref_Δ
+    write_fiserv_delta(ref_Δ, Δ_path)
+    
 
 # COMMAND ----------
 
@@ -265,8 +171,18 @@ if enc_detector:
 
 # COMMAND ----------
 
+# MAGIC %md 
+# MAGIC # Adjustments
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ## Rewrite tables
+
+# COMMAND ----------
+
 reset_deltas = False
-# Return back to False, after resetting. 
+# Regrésalo a False, después de borrarlo. 
 
 if reset_deltas: 
     remove_keys = ['DAMBS1', 'DAMBS2', 'DAMBSC', 'DAMNA', 'ATPTX']  #

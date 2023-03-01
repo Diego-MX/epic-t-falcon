@@ -1,7 +1,7 @@
 # Diego Villamil, EPIC
 # CDMX, 4 de noviembre de 2021
 
-from authlib.integrations.requests_client import OAuth2Session
+from collections import ChainMap
 from datetime import datetime as dt, timedelta as delta, date
 from httpx import (Client, AsyncClient, 
     Auth as AuthX, post as postx, BasicAuth as BasicX)
@@ -10,32 +10,39 @@ from json import dumps, decoder, loads
 from math import ceil
 from operator import itemgetter
 import pandas as pd
-from pandas.core import series, frame 
+from pandas import Series as pd_S, DataFrame as pd_DF
 from typing import Union
 from pytz import timezone
 from uuid import uuid4
 
 try: 
-    from delta.tables import DeltaTable
+    from delta.tables import DeltaTable as Δ
 except ImportError: 
-    DeltaTable = None
+    Δ = None
 try: 
-    from pyspark.sql import types as T, dataframe as spk_df
+    from pyspark.sql import (functions as F, types as T, 
+        DataFrame as spk_DF)
 except ImportError:
-    spk_df, T = None
+    F = T = spk_df = None
 try: 
     import xmltodict
 except ImportError:
     xmltodict = None
-    
+
+from src.utilities import encode64, dict_minus, snake_2_camel
 from src.core_models import Fee, FeeSet
-from src.utilities import encode64, dict_minus
+from config import (ENV, RESOURCE_SETUP, 
+    DATALAKE_PATHS as paths)
+
+resources      = RESOURCE_SETUP[ENV]
+slv_path       = paths['abfss'].format('silver', resources['storage'])
+at_withdrawals = f"{slv_path}/{paths['withdrawals']}/delta"
 
 API_LIMIT = 500
-
+cdmx_tz = timezone('America/Mexico_City')
 
     
-def date_2_pandas(sap_srs: pd.Series, mode='/Date') -> pd.Series:
+def date_2_pandas(sap_srs: pd_S, mode='/Date') -> pd_S:
     if mode == '/Date': 
         dt_regex  = r"/Date\(([0-9]*)\)/"
         epoch_srs = sap_srs.str.extract(dt_regex, expand=False)
@@ -43,41 +50,6 @@ def date_2_pandas(sap_srs: pd.Series, mode='/Date') -> pd.Series:
     elif mode == 'yyyymmdd': 
         pd_date = pd.to_datetime(sap_srs, format='%Y%m%d')
     return pd_date
-
-
-def datetime_2_filter(sap_dt, range_how=None) -> str: 
-    dt_string = (lambda a_dt: 
-            "datetime'{}'".format(a_dt.strftime('%Y-%m-%dT%H:%M:%S')))
-    if range_how == 'functions': 
-        dt_clause = lambda cmp_dt : "{}(EventDateTime,{})".format(*cmp_dt)
-    else: 
-        dt_clause = lambda cmp_dt : "EventDateTime {} {}".format(*cmp_dt)
-        
-    if isinstance(sap_dt, (dt, date)):
-        sap_filter = dt_clause(['ge', dt_string(sap_dt)])
-        return sap_filter
-    
-    two_cond = (isinstance(sap_dt, (list, tuple)) 
-            and (len(sap_dt) == 2) 
-            and (sap_dt[0] < sap_dt[1]))
-    if not two_cond: 
-        raise Exception("SAP_DT may be DATETIME or LIST[DT1, DT2] with DT1 < DT2")
-    
-    into_clauses = zip(['ge', 'lt'], map(dt_string, sap_dt))
-    # ... = (['ge', dtime_string(sap_dt[0])], 
-    #        ['lt', dtime_string(sap_dt[1])])
-    map_clauses = map(dt_clause, into_clauses)
-    if range_how in [None, 'and']: 
-        sap_filter = ' and '.join(map_clauses)
-    elif range_how == 'expand_list':  
-        sap_filter = list(map_clauses)
-    elif range_how == 'between':
-        sap_filter = ("EventDateTime between datetime'{}' and datetime'{}'"
-            .format(*map_clauses))
-    elif range_how == 'functions': 
-        sap_filter = 'and({},{})'.format(*map_clauses)
-    return sap_filter
-        
 
 
 class SAPSession(Client): 
@@ -89,6 +61,7 @@ class SAPSession(Client):
         
         super().__init__()
         self.base_url = core_obj['config']['main']['url']
+        self.headers = self.std_headers
         self.set_auth()
 
     # Tech Specs
@@ -110,67 +83,105 @@ class SAPSession(Client):
         'contract-current' : "v1/cac/ContractSet",
         'contract-loans'   : "v1/lac/ContractSet", 
         'fees-apply'       : "v1/feemass/FeeSet",
+        'fees-verify'      : "v1/feemass/StatusFeeSet", 
         'api-defs'         : "v1/oapi/oAPIDefinitionSet" } 
+    
     
     # Business Specs
     commission_labels = {
         'atm': (600405, 'ops-commissions-atm-001')}
-        
-        
-    def call_txns_commissions(self, 
-            accounts_df: Union[frame.DataFrame, spk_df.DataFrame], 
+    
+    
+    def process_commissions_atpt(self, spark,
+            atpt_df: Union[spk_DF, pd_DF], 
             cmsn_key='atm', **kwargs): 
         
-        ## Setup. 
-        by_k = kwargs.get('how-many', API_LIMIT)
+        by_k   = kwargs.get('how-many', API_LIMIT)
+        update = kwargs.get('update', True)
         
-        if isinstance(accounts_df, frame.DataFrame):
-            row_itr = accounts_df.iterrows()
-            len_df  = len(accounts_df)
-            
-        elif isinstance(accounts_df, spk_df.DataFrame): 
-            row_itr = enumerate(accounts_df.rdd.toLocalIterator())
-            len_df  = accounts_df.count()
+        feemass_set = {f'feemass_{a_col}' for a_col in ['external_id', 'process_date']}
+        fees_set    = {f'fee_{a_col}' for a_col in ['type_code', 'posting_date', 'value_date', 
+                    'amount', 'currency', 'payment_note']}
         
+        base_wdraws = spark.read.load(at_withdrawals)                       
+        join_wdraws = ("b_core_acct = account_id" 
+            + " AND atpt_mt_ref_nbr = txn_ref_number")
+        w_status    = {'b_wdraw_commission_status': 'feemass_status'}
+        
+        fees_iterator = self.iter_feemass_commissions(atpt_df, cmsn_key, by_k)
+        responses = []
+        for feeset in fees_iterator: 
+            fees_resp = self.call_feeset(feeset)
+            responses.append(fees_resp)
+            if fees_resp.status_code == 200 and update: 
+                fees_df  = feeset.as_dataframe(w_status=1)
+                fees_spk = spark.createDataFrame(fees_df).toDF()
+                (base_wdraws
+                    .merge(fees_spk, join_wdraws)
+                    .whenMatchedUpdate(
+                        set={**w_status, **fees_set, **feemass_set})
+                    .execute())
+        return responses
+    
+    
+    def verify_commissions_atpt(self, **f_args):
+        getters = {'url': self.api_calls['fees-verify']}             
+        if f_args: 
+            getters['params'] = {
+                '$filter': expr_dict_2_filter(f_args, camel_keys=False)}
+        the_resp = self.get(**getters)
+        return self.hook_d_results(the_resp, {'__metadata'})
+        
+    
+    def iter_feemass_commissions(self, 
+            atpt_df: Union[pd_DF, spk_DF], 
+            cmsn_key='atm', by_k=API_LIMIT):
+        
+        if isinstance(atpt_df, pd_DF):
+            row_itr = atpt_df.iterrows()
+            len_df  = len(atpt_df)
+        elif isinstance(atpt_df, spk_DF): 
+            row_itr = enumerate(atpt_df.rdd.toLocalIterator())
+            len_df  = atpt_df.count()
         iter_key = lambda ii_row: ii_row[0]//by_k
         n_grps   = ceil(len_df/by_k)
         
         ## Execution 
         cmsn_id, cmsn_name = self.commission_labels[cmsn_key]
-        
-        fees_fix = {
-            'TypeCode'   : cmsn_id, 
-            'Currency'   : 'MXN', 
-            'PaymentNote': f"{cmsn_key}, {cmsn_name}"}
-        
-        responses = []
+        fees_fixed = {
+            'type_code'    : cmsn_id, 
+            'currency'     : 'MXN', 
+            'payment_note' : f"{cmsn_key}, {cmsn_name}"}
+               
         for kk, sub_itr in groupby(row_itr, iter_key): 
-            print(f'Calling group {kk} of {n_grps}.')
-            an_id = str(uuid4())
-            now_str = dt.now(tz=timezone('America/Mexico_City')).strftime('%Y%m%d')
-            fees_set = [Fee(**fees_fix, **{
-                'AccountID'  : rr['b_sap_savings'], 
-                'PostingDate': now_str, 
-                'ValueDate'  : now_str}) for _, rr in sub_itr]
-            feeset_obj = FeeSet(**{
-                'ProcessDate': now_str, 
-                'ExternalID' : an_id, 
-                'FeeDetail'  : fees_set})
-            posters = {
-                    'url' : f"{self.api_calls['fees-apply']}", 
-                    'data': feeset_obj.json()}
-            the_resp = self.post(**posters)
-            responses.append(the_resp)     
-        return responses
-    
-    
-    def pos_txn_commission(self, txn_resp): 
-        if txn_resp.status_code == 201: 
-            feeseters = ['ProcessDate', 'ExternalID']
-            post_args = txn_resp.json()['d']
-            the_fees  = loads(txn_resp.request.content)['FeeDetail']
+            print(f'Calling group {kk+1} of {n_grps}.')
+            now_dt = dt.now(tz=cdmx_tz)
+            a_uuid = str(uuid4())
+            
+            fees_ls = [ Fee(**fees_fixed, 
+                    txn_ref_number = rr['atpt_mt_ref_nbr'], 
+                    account_id     = rr['b_core_acct'], 
+                    posting_date   = now_dt,
+                    value_date     = now_dt
+                    ) for _, rr in sub_itr]
+            feeset_obj = FeeSet(
+                process_date = now_dt, 
+                external_id  = a_uuid, 
+                fee_detail   = fees_ls)
+            yield feeset_obj
         
         
+    def call_feeset(self, feemass: FeeSet, merge=False): 
+        fee_data = feemass.json(by_alias=True,
+            exclude={'fee_detail': {'__all__': {'txn_ref_number'}}})
+        posters = {
+            'url' : f"{self.api_calls['fees-apply']}", 
+            'data': fee_data}
+        the_resp = self.post(**posters)
+        
+        return the_resp
+    
+    
     def call_person_set(self, params_x={}, **kwargs): 
         # Remove Keys from response list. 
         output   = kwargs.get('output',  'DataFrame')
@@ -222,10 +233,10 @@ class SAPSession(Client):
             'auth': BasicX(**self.call_dict(self.config['main']['access'])),
             'headers': {'Content-Type': "application/x-www-form-urlencoded"}
         }
-        self.auth = SAPAuth('any_wrong_token', auth_args)
+        self.auth = SAPAuth('any_initial_token', auth_args)
         
     
-    def hook_d_results(self, response): 
+    def hook_d_results(self, response, rm_keys=None): 
         hook_allowed_types = ['application/json', 'application/atom+xml']
         
         the_type = response.headers['Content-Type']
@@ -236,22 +247,63 @@ class SAPSession(Client):
             the_results = _xml_results(response.text)
         else: 
             raise Exception(f"Couldn't extract results from response with content type '{the_type}'.")
-            
+        
+        if rm_keys:
+            for e_result in the_results:
+                for kk in rm_keys: 
+                    e_result.pop(kk)
+                
         return the_results
-        
 
-    def update_token(token, refresh_token, access_token): 
-        auth_args = {
-            'url' : self.config['auth']['url'], 
-            'data': self.call_dict(self.config['auth']['data']), 
-            'auth': BasicX(**self.call_dict(self.config['main']['access'])),
-            'headers': {'Content-Type': "application/x-www-form-urlencoded"}
-        }
-        j_token = postx(**auth_args).json()
-        self.auth = Bearer2(j_token['access_token'])
+
+
+def expr_dict_2_filter(a_dict, camel_keys=False): 
+    """SAP admits specific filter constructs."""
+    def item_filter(a_key, a_val): 
+        a_fltr = (f"({a_key} eq '{a_val}')" if isinstance(a_val, str)
+            else " or ".join(f"({a_key} eq '{v_i}')" for v_i in a_val))
+        return f"({a_fltr})"
+    
+    mod_key = snake_2_camel if camel_keys else (lambda key: key)
+    d_fltr = " and ".join(item_filter(mod_key(kk), vv) 
+            for kk, vv in a_dict.items())
+    return d_fltr
+
+
+def datetime_2_filter(sap_dt, range_how=None) -> str: 
+    """Filtros que sirven para la API de eventos."""
+    dt_string = (lambda a_dt: 
+            "datetime'{}'".format(a_dt.strftime('%Y-%m-%dT%H:%M:%S')))
+    if range_how == 'functions': 
+        dt_clause = lambda cmp_dt : "{}(EventDateTime,{})".format(*cmp_dt)
+    else: 
+        dt_clause = lambda cmp_dt : "EventDateTime {} {}".format(*cmp_dt)
         
+    if isinstance(sap_dt, (dt, date)):
+        sap_filter = dt_clause(['ge', dt_string(sap_dt)])
+        return sap_filter
     
+    two_cond = (isinstance(sap_dt, (list, tuple)) 
+            and (len(sap_dt) == 2) 
+            and (sap_dt[0] < sap_dt[1]))
+    if not two_cond: 
+        raise Exception("SAP_DT may be DATETIME or LIST[DT1, DT2] with DT1 < DT2")
     
+    into_clauses = zip(['ge', 'lt'], map(dt_string, sap_dt))
+    # ... = (['ge', dtime_string(sap_dt[0])], 
+    #        ['lt', dtime_string(sap_dt[1])])
+    map_clauses = map(dt_clause, into_clauses)
+    if range_how in [None, 'and']: 
+        sap_filter = ' and '.join(map_clauses)
+    elif range_how == 'expand_list':  
+        sap_filter = list(map_clauses)
+    elif range_how == 'between':
+        sap_filter = ("EventDateTime between datetime'{}' and datetime'{}'"
+            .format(*map_clauses))
+    elif range_how == 'functions': 
+        sap_filter = 'and({},{})'.format(*map_clauses)
+    return sap_filter
+        
 
 def str_error(an_error): 
     try: 
@@ -262,14 +314,14 @@ def str_error(an_error):
 
 
 def _xml_results(xml_text): 
-        get_entry_ds = (lambda entry_dict: 
-            {re.sub(r'^d\:', '', k_p): v_p 
-            for k_p, v_p in entry_dict.items() if k_p.startswith('d:')})
-        
-        entry_ls = xmltodict.parse(xml_text)['feed']['entry']
-        entry_props = [entry['content']['m:properties'] for entry in entry_ls]
-        entry_rslts = [get_entry_ds(prop) for prop in entry_props]
-        return entry_rslts
+    get_entry_ds = (lambda entry_dict: 
+        {re.sub(r'^d\:', '', k_p): v_p 
+        for k_p, v_p in entry_dict.items() if k_p.startswith('d:')})
+
+    entry_ls = xmltodict.parse(xml_text)['feed']['entry']
+    entry_props = [entry['content']['m:properties'] for entry in entry_ls]
+    entry_rslts = [get_entry_ds(prop) for prop in entry_props]
+    return entry_rslts
 
 
 class SAPAuth(AuthX): 
@@ -285,19 +337,7 @@ class SAPAuth(AuthX):
             request.headers['Authorization'] = f"Bearer {self.token}"
             yield request
             
-    
-class Bearer2(AuthX): 
-    # Funciona para las dos conexiones. 
-    def __init__(self, token_str): 
-        self.token = token_str 
-
-    def auth_flow(self, a_request): 
-        a_request.headers['Authorization'] = f"Bearer {self.token}"
-        yield a_request
-
-    def __call__(self, a_request):
-        a_request.headers['Authorization'] = f"Bearer {self.token}"
-        return a_request
+   
 
         
     

@@ -1,8 +1,7 @@
 from os import environ, getenv, remove
 import re
 
-from azure.identity import ClientSecretCredential
-from azure.identity._credentials.default import DefaultAzureCredential
+from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from azure.storage.blob import BlobServiceClient
 from pathlib import Path
@@ -102,7 +101,8 @@ DATALAKE_PATHS = {
     'reports'      : "ops/regulatory/transformation-layer",  # R2422, SISPAGOS,
     'reports2'     : "ops/regulatory/conciliations",         #
     'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
-    'commissions'  : "ops/account-management/commissions",   # comisiones de cajeros
+    'withdrawals'  : "ops/account-management/withdrawals",   # todos los retiros
+    'commissions'  : "ops/account-management/commissions",   # retiros de cajeros
     'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI. 
 }
 
@@ -236,37 +236,44 @@ class ConfigEnviron():
         self.credential = the_creds
         
 
-    def upload_storage_blob(self, a_file, blob, container, account=None, overwrite=False):
+    def get_blob_service(self, account=None): 
+        if not hasattr(self, 'blob_services'): 
+            self.blob_services = {}
+        
         if account is None: 
             account = self.config['storage']
-
+        
         if not hasattr(self, 'credential'): 
             self.set_credential()
 
         the_url = f"https://{account}.blob.core.windows.net/"
         b_service = BlobServiceClient(the_url, credential=self.credential)
+        self.blob_services[account] = b_service
+        return b_service
+        
+        
+    def upload_storage_blob(self, a_file, blob, container, account=None, overwrite=False):
+        b_service = self.get_blob_service(account)
 
-        the_blob = b_service.get_blob_client(container, blob)
+        the_blob = b_service.get_blob_service(container, blob)
         with open(a_file, 'rb') as _b: 
             the_blob.upload_blob(_b, overwrite=overwrite)
     
 
-    def download_storage_blob(self, a_file, blob, container, account=None): 
-        if account is None: 
-            account = self.config['storage']
-        
-        the_url = f"https://{account}.vault.azure.net/"
-        b_service = BlobServiceClient(the_url, credential=self.env.credential)
-
-        if Path(a_file): 
+    def download_storage_blob(self, a_file, a_blob, container, account=None, force=False): 
+        if force and Path(a_file).is_file(): 
             remove(a_file)
         
-        the_blob = b_service.get_blob_client(container, blob)
+        if Path(a_file).is_file(): 
+            return 
+            
+        b_service = self.get_blob_service(account)
+        the_blob = b_service.get_blob_client(container, a_blob)
         with open(a_file, 'wb') as _b: 
             b_data = the_blob.download_blob()
-            b_data.readinto(_b)
+            _b.write(b_data.readall())
 
-
+        
     def sparktransfer_credential(self): 
         if not hasattr(self, 'call_dict'): 
             self.set_secretters()

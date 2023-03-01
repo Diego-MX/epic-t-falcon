@@ -2,9 +2,8 @@ from functools import reduce
 import numpy as np
 import pandas as pd
 from pandas import DataFrame as pd_DF, Series as pd_S
-from pyspark.sql import functions as F, types as T
-from pyspark.sql.column import Column as spk_Col
-from pyspark.sql.dataframe import DataFrame as spk_DF
+from pyspark.sql import (functions as F, types as T, 
+    Column as Col, DataFrame as spk_DF)
 from typing import List, Dict, Union
 
 
@@ -73,8 +72,8 @@ def colsdf_2_schema(b_df: pd_DF) -> T.StructType:
 def with_columns(a_df: spk_DF, cols_dict: dict) -> spk_DF: 
     f_with = lambda x_df, col_item: x_df.withColumn(col_item[0], col_item[1])
     
-    non_cols = {name for name, col in cols_dict.items() 
-            if not isinstance(col, spk_Col)}
+    non_cols = {name for name, a_col in cols_dict.items() 
+            if not isinstance(a_col, Col)}
     if non_cols: 
         raise Exception(f"Non Columns: {non_cols}")
         
