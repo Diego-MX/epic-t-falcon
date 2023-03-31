@@ -99,7 +99,7 @@ DATALAKE_PATHS = {
     'from-cms'     : "ops/regulatory/card-management/transformation-layer",  # 
     'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready",  # Extraer y descomprimir
     'reports'      : "ops/regulatory/transformation-layer",  # R2422, SISPAGOS,
-    'reports2'     : "ops/regulatory/conciliations",         #
+    'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.  
     'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
     'withdrawals'  : "ops/account-management/withdrawals",   # todos los retiros
     'commissions'  : "ops/account-management/commissions",   # retiros de cajeros
@@ -107,11 +107,11 @@ DATALAKE_PATHS = {
 }
 
 DELTA_TABLES = {
-    'DAMNA' : ('damna',  'damna' , 'din_clients.slv_ops_cms_damna_stm'), 
-    'ATPTX' : ('atpt',   'atpt'  , 'farore_transactions.slv_ops_cms_atptx_stm'), 
-    'DAMBS1': ('dambs',  'dambs' , 'nayru_accounts.slv_ops_cms_dambs_stm'), 
-    'DAMBS2': ('dambs2', 'dambs2', 'nayru_accounts.slv_ops_cms_dambs2_stm'), 
-    'DAMBSC': ('dambsc', 'dambsc', 'nayru_accounts.slv_ops_cms_dambsc_stm')}
+    'damna' : 'din_clients.slv_ops_cms_damna_stm', 
+    'atpt'  : 'farore_transactions.slv_ops_cms_atptx_stm', 
+    'DAMBS1': 'nayru_accounts.slv_ops_cms_dambs_stm', 
+    'DAMBS2': 'nayru_accounts.slv_ops_cms_dambs2_stm', 
+    'DAMBSC': 'nayru_accounts.slv_ops_cms_dambsc_stm'}
 
 
 

@@ -3,15 +3,8 @@ import pandas as pd
 from epic_py.utilities import read_excel_table
 
 
-def print_df(a_df, width=180): 
-    options = ['display.max_rows', None, 
-               'display.max_columns', None, 
-               'display.width', width]
-    with pd.option_context(*options):
-        print(a_df)
 
-
-def fiserv_data(a_df): 
+def fiserv_data(a_df: pd.DataFrame): 
     # Field Name, Format, Technical Mapping
     mod_cols = {
         'Field Name': lambda df: df['Field Name'].str.strip(), 
@@ -44,7 +37,8 @@ def fiserv_data(a_df):
 
 if __name__ == '__main__': 
 
-    from config import ConfigEnviron, ENV, SERVER, DATALAKE_PATHS as paths
+    from config import (ConfigEnviron, 
+        ENV, SERVER, DATALAKE_PATHS as paths)
     from datetime import datetime as dt
     from pathlib import Path
     app_environ = ConfigEnviron(ENV, SERVER)

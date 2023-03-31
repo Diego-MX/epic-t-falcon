@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-# Runbook 
+# Runbook  
   
 El código de este repo se ejecuta en el ambiente de Databricks.   
 Utilizamos la nomenclatura `ops-conciliations` para identificar los recursos.  
@@ -32,33 +31,20 @@ Entonces utiliza los siguientes recursos:
 
 
 # Descripción  
-=======
-# Descripción
-
-Utilizamos este repositorio para la ejecución del proyecto que realizamos con el equipo de Databricks.  
-
-Esta _capa de transformación_ establece un puente entre la información de manejo de tarjetas y otros procesos internos.  
+  
+Esta _capa de transformación_ establece un puente entre el sistema de manejo de tarjetas y otros procesos internos.  
 El proveedor de tarjetas es Fiserv, y el principal consumidor de los resultados son los reportes regulatorios.   
 Si bien los reportes regulatorios recaen en el _core_ bancario -SAP-, aquí se hacen algunas transformaciones intermedias.  
 
 El esquema general es:  
 1. `Fiserv` deposita archivos en `raw`/`bronze`. 
-2. `Proyecto` convierte los archivos en formatos `silver`/`gold`. 
+2. `Proyecto` convierte los archivos en formatos `~silver`/`gold`. 
 3. `SAP` u otros consumidores utilizan los resultados como insumos. 
 
 
+# Solicitudes Técnicas  
 
-
-# Solicitudes Técnicas
->>>>>>> dev
-
-Para la entrega del código les pedimos utilizar este formato de repositorio.  
-
-1. Este archivo `readme.md` contendrá en primer lugar los elementos del _runbook_, así como otras cuestiones tanto funcionales como técnicas 
-para cualquiera que utilice este código.  
-
-
-2. El archivo `config.py` tiene los parámetros que se utilizan, desde rutas de archivo, 
+1. El archivo `config.py` tiene los parámetros que se utilizan, desde rutas de archivo, 
   nombres de llaves de acceso, u otros parámetros modificables.   
   Las variables que se deben configurar externamente se enlistan además en este `readme.md`; 
   y también incluimos algunas variables propias del proyecto.  
@@ -68,11 +54,11 @@ para cualquiera que utilice este código.
   ```  
   Si se utiliza código en otro lenguaje, favor de incluir en los requerimientos. 
 
-3. Incluimos también la carpeta de `src` para guardar diferentes tipos de funciones.  
+2. Se incluye también la carpeta de `src` para guardar diferentes tipos de funciones.  
   Incluye el archivo `__init__.py` para importarlo como módulo.  
   
 4. La carpeta de _notebooks_ contiene los mismos con el propósito de ejecutarse como _jobs_.   
-  Utiliza(cemos) la siguiente nomenclatura:  
+  Utili(za|cemos) la siguiente nomenclatura:  
   - Si el archivo es experimental, iniciar el nombre del _notebook_ con las iniciales del autor:   
     Ejemplo: `dv revisar conexión sftp`  
   - Si el archivo está listo para ejecutarse regularmente, llamar con un índice entero de orden de ejecución:  
@@ -80,6 +66,12 @@ para cualquiera que utilice este código.
     `1 carga datos fuente 2`  
     `2 resumir datos por usuario`   
     `3 programar schedule para los Notebooks (1 y 3 meses)`
-    
-    
+
+
+# Secuencia técnica  
+
+En la continuación del desarrollo de este módulo colaborativo describimos los _notebooks_ y módulos q
+
 [runbook]: https://bineo.atlassian.net/wiki/spaces/~6282a2fbd9ddcc006e9c3438/pages/1725595654/Conciliaciones+-+runbook
+
+

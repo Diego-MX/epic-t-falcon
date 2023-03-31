@@ -2,6 +2,7 @@ from functools import reduce
 import numpy as np
 import pandas as pd
 from pandas import DataFrame as pd_DF, Series as pd_S
+from pyspark.dbutils import DBUtils
 from pyspark.sql import (functions as F, types as T, 
     Column as Col, DataFrame as spk_DF)
 from typing import List, Dict, Union
@@ -28,20 +29,25 @@ def colsdf_prepare(a_df: pd_DF) -> pd_DF:
     
 def colsdf_2_select(b_df: pd_DF, base_col='value'): 
     # F_NAUGHT as callable placeholder in list. 
-    f_naught  = lambda name: T.NullType()
-    f_sgn_dbl = lambda name: (F.col(name).cast(T.DoubleType()) 
+    naught  = lambda name: T.NullType()
+    sgn_dbl = lambda name: (F.col(name).cast(T.DoubleType()) 
             *F.concat(F.col(f'{name}_sgn'), F.lit('1')).cast(T.DoubleType())
             ).alias(name)
-    f_date    = lambda name: F.to_date(F.col(name), 'yyyyMMdd').alias(name)
-    f_str     = lambda name: F.trim(F.col(name)).alias(name)
-    f_int     = lambda name: F.col(name).cast(T.IntegerType()).alias(name)
-    f_long    = lambda name: F.col(name).cast(T.LongType()).alias(name)
+    f_date  = lambda name: F.to_date(F.col(name), 'yyyyMMdd').alias(name)
+    f_str   = lambda name: F.col(name).alias(name)
+    f_int   = lambda name: F.col(name).cast(T.IntegerType()).alias(name)
+    f_long  = lambda name: F.col(name).cast(T.LongType()).alias(name)
     
     # Corresponding to C_TYPE = ... 2, 3, 4, 5, 6
-    type_funcs = [f_naught, f_naught, f_sgn_dbl, f_date, f_str, f_int, f_long]
+    type_funcs = [naught, naught, sgn_dbl, f_date, f_str, f_int, f_long]
     
-    len_slct = [
-        F.substring(F.col(base_col), a_row['From'], a_row['Length']).alias(name)
+    def row_to_select(a_row): 
+        col_1 = F.trim(F.substring(F.col(base_col), a_row['From'], a_row['Length']))
+        w_enc = a_row['Enc_Fix']
+        col_2 = F.decode(F.encode(col_1, 'iso-8859-1'), w_enc) if w_enc else col_1
+        return col_2
+        
+    len_slct = [row_to_select(a_row).alias(name)
         for name, a_row in b_df.iterrows() if a_row['c_type'] > 0]
     
     type_slct = [ type_funcs[a_row['c_type']](name)
@@ -81,10 +87,13 @@ def with_columns(a_df: spk_DF, cols_dict: dict) -> spk_DF:
     return b_df
 
 
+
 def join_with_suffix(a_df, b_df, on_cols, how, suffix): 
-    non_on = set(a_df.columns).intersection(b_df.columns).difference(on_cols)
-    a_rnmr = {a_col+suffix[0]: a_col for a_col in non_on}
-    b_rnmr = {b_col+suffix[1]: b_col for b_col in non_on}
+    non_on = (set(a_df.columns)
+        .intersection(b_df.columns)
+        .difference(on_cols))
+    a_rnms = {a_col+suffix[0]: a_col for a_col in non_on}
+    b_rnms = {b_col+suffix[1]: b_col for b_col in non_on}
     
     a_rnmd = with_columns(a_df, a_rnms)
     b_rnmd = with_columns(b_df, b_rnms)

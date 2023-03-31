@@ -52,7 +52,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -r ../reqs_dbks.txt
+# MAGIC %pip install -r ../reqs_dbks.txt 
 
 # COMMAND ----------
 
@@ -102,14 +102,10 @@ slv_path       = paths['abfss'].format('silver', resources['storage'])
 at_datasets    = f"{slv_path}/{paths['datasets']}"  
 at_withdrawals = f"{slv_path}/{paths['withdrawals']}/delta"
 
+# Fiserv es el proveedor que maneja estos archivos:  txns, clientes. 
 atptx_loc      = f"{at_datasets}/atpt/delta"
 dambs_loc      = f"{at_datasets}/dambs/delta"
 
-
-# COMMAND ----------
-
-print(dambs_loc)
-spark.read.load(dambs_loc).display()
 
 # COMMAND ----------
 
@@ -118,6 +114,15 @@ spark.read.load(dambs_loc).display()
 # MAGIC ## 1. Withdrawals Table
 # MAGIC Starting from the transactions universe, consider the ones that are withdrawals.  
 # MAGIC Prepare the corresponging attributes to manage them.  
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC Ejemplo de retiro para comprobar que está en ATPT.  
+# MAGIC - `Cuenta`:  `02020000967`
+# MAGIC 
+# MAGIC **Nota** Los ATPTs no distinguen diferentes BPAs.   
+# MAGIC O sea, pueden venir cuentas y txns de diferentes de ellos en un mismo archivo. 
 
 # COMMAND ----------
 
@@ -131,7 +136,7 @@ spark.read.load(dambs_loc).display()
 #     -2: not-posted (via date)
 #      0: not-applied
 #      1: sent to commission
-#      2: applies}
+#      2: applied}
 
 # atpt_mt_category_code: {
 #    5045, 5311, 5411, 5661, 7994
@@ -169,6 +174,7 @@ wdraw_status = (F.when(~F.col('b_wdraw_is_commissionable'), -1)
                  .when(F.col('atpt_mt_posting_date').isNull(), -2)
                  .otherwise(0))
 
+# Core Banking es SAP. 
 wdraw_withcols = OrderedDict({
     'b_core_acct'        : purchase_to_savings('atpt_mt_purchase_order_nbr'), 
     'b_wdraw_acq_code'   : F.substring(F.col('atpt_mt_interchg_ref'), 2, 6), 
@@ -215,7 +221,7 @@ display(wdraw_txns)
 # COMMAND ----------
 
 # Obtener las comisiones cobrables.  
-cdmx_tz = timezone('America/Mexico_City')
+cdmx_tz    = timezone('America/Mexico_City')
 today_date = dt.now(tz=cdmx_tz).date()
 since_date = today_date - delta(COMSNS_FRAME)
 
@@ -237,7 +243,7 @@ join_select = [F.coalesce(wdraw_txns[a_col], miscommissions[a_col]).alias(a_col)
     for a_col in miscommissions.columns 
     if  a_col not in join_on + join_diff]
 
-pre_commissions = (wdraw_txns
+commissions = (wdraw_txns
     .filter(F.col('b_wdraw_is_commissionable') 
          & (F.col('b_wdraw_commission_status') == 0)
          & (F.col('b_wdraw_rk_txns') == 1))
@@ -245,10 +251,10 @@ pre_commissions = (wdraw_txns
     .join(miscommissions, how='outer', on=join_on)
     .filter(wdraw_txns['atpt_mt_posting_date'] >= since_date)
     .select(*(join_on + join_diff + join_select)))
-
-commissions = pre_commissions
     
-cmsns_summary = pre_commissions.select(['status_0', 'status_1']).summary('count')
+cmsns_summary = (commissions
+    .select(['status_0', 'status_1'])
+    .summary('count'))
 cmsns_summary.show()
 
 # COMMAND ----------
@@ -273,8 +279,33 @@ core_session = SAPSession(core_starter)
 # COMMAND ----------
 
 responses = core_session.process_commissions_atpt(spark, 
-    commissionable, 'atm', **{'how-many': 50})
+    commissions, 'atm', **{'how-many': 50})
 
 # COMMAND ----------
 
-responses[1].json()
+
+
+# COMMAND ----------
+
+# MAGIC %md  
+# MAGIC ## 4. Refresh Commission Status
+# MAGIC - Las respuestas (API) pueden o no ser cobradas en el momento.  
+# MAGIC - En su momento -de hecho- 
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC # Pruebas 
+# MAGIC 
+# MAGIC Pruebas nivel medio técnico.  
+# MAGIC 1.  Los retiros que se hicieron 'funcionalmente' aparecen en el archivo ATPT.  
+# MAGIC 2.  Los retiros que aparecen en ATPT, se clasificaron como `comisionables`/`no-comisionables`.  
+# MAGIC 3.  Los retiros `comisionables` se les aplicó una comisión, y se ve reflejada en el núcleo bancario SAP. 
+# MAGIC 4.  Se actualizó el estatus de la comisión, como cobrada en las tablas del Δ-lake. 
+# MAGIC 
+# MAGIC 
+# MAGIC Pruebas funcionales.  
+# MAGIC 1.  Sr. A. recibió una notificación después de hacer un retiro del cajero.    
+# MAGIC     a) La notificación decía lo que tiene que decir.   
+# MAGIC     b) (La notificación llegó a una hora apropiada, y no a las 12AM cuando se procesó por el sistema)  
+# MAGIC     c) **Caso extremo**, Si L.A. hizo muchas retiros en un día, recibió una sóla notificación con información de las 3 txns.  

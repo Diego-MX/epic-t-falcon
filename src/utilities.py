@@ -1,18 +1,16 @@
 import base64
 from datetime import datetime as dt
+from delta.tables import DeltaTable as Δ
 from operator import attrgetter
+from pathlib import Path
 import pandas as pd
 from pandas import Series as pd_S, DataFrame as pd_DF
-from pathlib import Path
-from pyspark.sql.dataframe import DataFrame as spk_DF
+from pyspark.dbutils import DBUtils
+from pyspark.sql import (functions as F, types as T, 
+    DataFrame as spk_DF, Column, Row)
 from os import path
 import re
 from typing import Union
-
-try: 
-    from pyspark.dbutils import DBUtils
-except ImportError: 
-    DBUtils = None
 
 
 encode64 = (lambda a_str: 
@@ -62,14 +60,13 @@ def path_type(a_path: str, spark):
         dbutils = DBUtils(spark)
         ls_1 = dbutils.fs.ls(a_path)
     except Exception as expt: 
-        return (0, 'Error')
+        return 'Not Exists'
     
     if (len(ls_1) == 1) and (ls_1[0].path == a_path): 
-        return (len(ls_1), 'File')
+        return 'File'
     else: 
-        return (len(ls_1), 'Folder')
+        return 'Folder'
  
-    
         
 
 def file_exists(a_path: str): 
@@ -84,8 +81,6 @@ def file_exists(a_path: str):
                 return False
         else:
             raise Exception(f"Can't find file {a_path}.")
-
-
 
 
 def pd_print(a_df: pd_DF, width=180): 
@@ -116,3 +111,50 @@ def dbks_path(a_path: Path):
     else: 
         b_str = a_str 
     return b_str
+
+
+def upsert_delta(spark, new_tbl, base_path, how, 
+                 on_cols:Union[list, dict]): 
+    if how == 'simple': 
+        if not isinstance(on_cols, list): 
+            raise Exception("ON_COLS must be of type LIST.")
+        on_str = " AND ".join(f"(t1.{col} = t0.{col})" for col in on_cols)
+        
+        (Δ.forPath(spark, base_path).alias('t0')
+            .merge(new_tbl.alias('t1'), on_str)
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute())
+        
+    elif how == 'delete': 
+        if not isinstance(on_cols, dict): 
+            raise Exception("ON_COLS must be of type DICT.")
+        ids_cc, cmp_cc = map(on_cols.get, ['ids', 'cmp'])
+        s_delete = (spark.read
+            .load(base_path)
+            .join(new_tbl, how='leftsemi', on=ids_cc)
+            .join(new_tbl, how='leftanti', on=ids_cc + cmp_cc)
+            .withColumn('to_delete', F.lit(True)))
+        t_merge = (new_tbl
+            .withColumn('to_delete', F.lit(False))
+            .unionByName(s_delete))
+        mrg_condtn = ' AND '.join(f"(t1.{cc} = t0.{cc})" for cc in ids_cc+cmp_cc) 
+        new_values = {cc: F.col(f"t1.{cc}") for cc in new_tbl.columns}
+        
+        (Δ.forPath(spark, base_path).alias('t0')
+            .merge(t_merge.alias('t1'), mrg_condtn)
+            .whenMatchedDelete('to_delete')
+            .whenMatchedUpdate(set=new_values)
+            .whenNotMatchedInsert(values=new_values)
+            .execute())
+    return 
+
+
+def get_date(a_col: Union[str, Column]) -> Column: 
+    date_reg = r'20[\d\-]{8}'
+    date_col = F.to_date(F.regexp_extract(a_col, date_reg, 0), 'yyyy-mm-dd')
+    return date_col
+    
+    
+    
+    

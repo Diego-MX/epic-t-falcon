@@ -2,10 +2,11 @@ from datetime import date
 from itertools import product
 import pandas as pd
 from pandas import DataFrame as pd_DF
-from pyspark.sql import (functions as F, 
-    DataFrame as spk_DF)
+from pyspark.sql import (functions as F, types as T, 
+    DataFrame as spk_DF, Column)
+from typing import Union
 
-from src import tools, utilities as src_utils
+from src import tools, utilities as utils
 ### PROCESS_FILES
 ### READ_SOURCE_TABLE
 
@@ -40,11 +41,11 @@ def process_files(file_df: pd_DF, a_src) -> pd_DF:
 # tsv_options, schemas, renamers, read_cols, mod_cols, base_cols. 
 # Aguas con esas definiciones.  
 
-def get_match_path(src_key, dir_df, date_key): 
+def get_match_path(dir_df, file_keys): 
     # Estos Matchers se usan para la función GET_MATCH_PATH, y luego READ_SOURCE_TABLE. 
     matchers_keys = {
-        'subledger'     : ["key == 'FZE02'"],  # FPSL
-        'cloud-banking' : ["key == 'CC4B2'"],  # C4B
+        'subledger'     : ["key == 'FZE02'", "key == 'FZE03'"],  # FPSL
+        'cloud-banking' : ["key == 'CC4B2'", "key == 'CCB15'"],  # C4B
         'spei-ledger'   : [], 
         'spei-banking'  : []}
     
@@ -90,36 +91,44 @@ def update_sourcers(blobber, blob_dir, trgt_dir):
 
 meta_cols = [('_metadata.file_name', 'file_path'), 
              ('_metadata.file_modification_time', 'file_modified')]
- 
+
+
 def prepare_sourcer(b_key, layout_dir): 
+    meta_cols = [('_metadata.file_name', 'file_path'), 
+             ('_metadata.file_modification_time', 'file_modified')]
+    
     temper_file  = f"{layout_dir}/{b_key}_{{}}_latest.feather" 
 
     dtls_file = f"{layout_dir}/{b_key}_detail_latest.feather"
+    
     dtls_df = (pd.read_feather(dtls_file)
         .assign(name = lambda df: 
                 df['name'].str.replace(')', '', regex=False)))
 
     hdrs_df = pd.read_feather(temper_file.format('header'))
     trlr_df = pd.read_feather(temper_file.format('trailer'))    
-    up_to_len = max(src_utils.len_cols(hdrs_df), src_utils.len_cols(trlr_df))  
-    # Siempre son (47, 56)
+    up_to_len = max(utils.len_cols(hdrs_df), utils.len_cols(trlr_df))  
+    # Siempre es 56 = max(47, 56)
 
     prep_dtls     = tools.colsdf_prepare(dtls_df)
     the_selectors = tools.colsdf_2_select(prep_dtls, 'value')  
-        # 1-substring, 2-typecols, 3-sorted
+    # 1-substring, 2-typecols, 3-sorted
 
     the_selectors['long_rows'] = (F.length(F.rtrim(F.col('value'))) > up_to_len)
     return the_selectors
     
     
-def read_delta_basic(spark, src_path, tgt_path=None) -> spk_DF: 
-    src_fs = src_utils.path_type(src_path, spark)[1]
+def read_delta_basic(spark, src_path, tgt_path=None, **kwargs) -> spk_DF: 
+    meta_cols = [('_metadata.file_name', 'file_name'), 
+             ('_metadata.file_modification_time', 'file_modified')]
+    
+    src_fs = utils.path_type(src_path, spark)[1]
     
     if ((src_fs == 'Folder') 
             and (tgt_path is not None) 
             and Δ.isDeltaTable(spark, tgt_path)): 
         optn_lookup = 'true'
-        optn_format = 'text'
+        optn_hdr    = 'false'
         optn_mod = (spark.read.format('delta')
             .load(tgt_path)
             .select(F.max('file_modified'))
@@ -127,34 +136,40 @@ def read_delta_basic(spark, src_path, tgt_path=None) -> spk_DF:
         
     elif src_fs == 'Folder':
         optn_lookup = 'true'
-        optn_format = 'text'
-        optn_mod = date(2020, 1, 1)
+        optn_mod    = date(2020, 1, 1)
+        optn_hdr    = 'false'
     else: 
         optn_lookup = 'false'
-        optn_format = 'text'
-        optn_mod = date(2020, 1, 1)
+        optn_hdr    = 'true'
+        optn_mod    = date(2020, 1, 1)
     
-    pre_delta = (spark.read.format(optn_format)
+    pre_delta = (spark.read.format('text')
         .option('recursiveFileLookup', optn_lookup)
-        .option('encoding', 'iso-8859-3') 
-        .option('header', 'true')
+        .option('header', optn_hdr)
         .load(src_path, modifiedAfter=optn_mod)
         .select('value', *[F.col(a_col[0]).alias(a_col[1]) 
-                for a_col in meta_cols]))
+                for a_col in meta_cols])
+        .withColumn('value', F.decode('value', 'iso-8859-1')))
+    
     return pre_delta
+
+
+def delta_with_sourcer(pre_Δ: spk_DF, sourcer, only_substring=False) -> spk_DF: 
+    meta_keys = ['file_name', 'file_date', 'file_modified']
+    # Sourcer has LONG_ROWS, 1-SUBSTRING, 2-TYPECOLS
     
-
-def delta_with_sourcer(pre_Δ: spk_DF, sourcer) -> spk_DF: 
-    meta_keys = ['file_path', 'file_modified', 'file_date']
-
-    a_delta = (pre_Δ
-        .withColumn('file_date', F.to_date(F.col('file_modified'), 'yyyy-MM-dd'))
+    delta_1 = (pre_Δ
+        .withColumn('file_date', utils.get_date('file_name'))
         .filter(sourcer['long_rows'])
-        .select(*meta_keys, *sourcer['1-substring'])
-        .select(*meta_keys, *sourcer['2-typecols' ]))
+        .select(*sourcer['1-substring'], *meta_keys))
     
-    return a_delta
+    if not only_substring: 
+        delta_2 = (delta_1
+        .select(*sourcer['2-typecols'], *meta_keys))
+    else: 
+        delta_2 = delta_1
+    return delta_2
     
-    
-    
+
+        
     
