@@ -40,20 +40,15 @@
 
 # COMMAND ----------
 
-from azure.identity import ClientSecretCredential
 from azure.storage.blob import ContainerClient
-from collections import Counter
-from datetime import datetime as dt, date, timedelta as delta
-from os import listdir
-import pandas as pd
 from pathlib import Path
 import re
-from zipfile import ZipFile, BadZipFile
+from zipfile import ZipFile
 
 
 # COMMAND ----------
 
-from src.utilities import dirfiles_df, dbks_path
+from src.utilities import dirfiles_df
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 

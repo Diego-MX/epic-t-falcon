@@ -43,20 +43,11 @@
 
 # COMMAND ----------
 
-from azure.identity import ClientSecretCredential
-from azure.storage.blob import BlobServiceClient
-from datetime import datetime as dt, date, timedelta as delta
+from datetime import date
 from delta.tables import DeltaTable as Δ
-import glob
-from itertools import product
-import numpy as np
-from os import listdir
 import pandas as pd
-from pandas import DataFrame as pd_DF
-from pyspark.sql import (DataFrame as spk_DF, 
-    functions as F, types as T, Window as W)
+from pyspark.sql import (DataFrame as spk_DF, functions as F)
 from pathlib import Path
-import re
 
 
 # COMMAND ----------

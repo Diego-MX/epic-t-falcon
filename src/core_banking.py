@@ -1,35 +1,25 @@
 # Diego Villamil, EPIC
 # CDMX, 4 de noviembre de 2021
 
-from authlib.integrations.requests_client import OAuth2Session
 from datetime import datetime as dt, timedelta as delta, date
+from delta.tables import DeltaTable as Δ
 from httpx import (Client, AsyncClient, 
     Auth as AuthX, post as postx, BasicAuth as BasicX)
 from itertools import groupby
-from json import dumps, decoder, loads
+from json import dumps, loads
 from math import ceil
-from operator import itemgetter
 import pandas as pd
-from pandas.core import series, frame 
+from pandas import DataFrame as pd_DF
+from pyspark.sql import (DataFrame as spk_DF)
+import re
 from typing import Union
 from pytz import timezone
 from uuid import uuid4
+import xmltodict
 
-try: 
-    from delta.tables import DeltaTable
-except ImportError: 
-    DeltaTable = None
-try: 
-    from pyspark.sql import types as T, dataframe as spk_df
-except ImportError:
-    spk_df, T = None
-try: 
-    import xmltodict
-except ImportError:
-    xmltodict = None
     
 from src.core_models import Fee, FeeSet
-from src.utilities import encode64, dict_minus
+from src.utilities import dict_minus
 
 API_LIMIT = 500
 
@@ -118,17 +108,17 @@ class SAPSession(Client):
         
         
     def call_txns_commissions(self, 
-            accounts_df: Union[frame.DataFrame, spk_df.DataFrame], 
+            accounts_df: Union[pd_DF, spk_DF], 
             cmsn_key='atm', **kwargs): 
         
         ## Setup. 
         by_k = kwargs.get('how-many', API_LIMIT)
         
-        if isinstance(accounts_df, frame.DataFrame):
+        if isinstance(accounts_df, pd_DF):
             row_itr = accounts_df.iterrows()
             len_df  = len(accounts_df)
             
-        elif isinstance(accounts_df, spk_df.DataFrame): 
+        elif isinstance(accounts_df, spk_DF): 
             row_itr = enumerate(accounts_df.rdd.toLocalIterator())
             len_df  = accounts_df.count()
         
@@ -240,7 +230,7 @@ class SAPSession(Client):
         return the_results
         
 
-    def update_token(token, refresh_token, access_token): 
+    def update_token(self, token): 
         auth_args = {
             'url' : self.config['auth']['url'], 
             'data': self.call_dict(self.config['auth']['data']), 

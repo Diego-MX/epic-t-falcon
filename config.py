@@ -236,31 +236,38 @@ class ConfigEnviron():
         self.credential = the_creds
         
 
-    def upload_storage_blob(self, a_file, blob, container, account=None, overwrite=False):
+    def get_blob_service(self, account=None):
+        if not hasattr(self, 'blob_services'):
+            self.blob_services = {}
+    
         if account is None: 
             account = self.config['storage']
 
-        if not hasattr(self, 'credential'): 
-            self.set_credential()
+        if account not in self.blob_services: 
+            if not hasattr(self, 'credential'): 
+                self.set_credential()
 
-        the_url = f"https://{account}.blob.core.windows.net/"
-        b_service = BlobServiceClient(the_url, credential=self.credential)
+            the_url = f"https://{account}.blob.core.windows.net/"
+            b_service = BlobServiceClient(the_url, credential=self.credential)
+            self.blob_services[account] = b_service
+        
+        return self.blob_services[account]
+
+
+    def upload_storage_blob(self, a_file, blob, container, account=None, overwrite=False):
+        b_service = self.get_blob_service(account)
 
         the_blob = b_service.get_blob_client(container, blob)
         with open(a_file, 'rb') as _b: 
             the_blob.upload_blob(_b, overwrite=overwrite)
     
+    
 
     def download_storage_blob(self, a_file, blob, container, account=None): 
-        if account is None: 
-            account = self.config['storage']
-        
-        the_url = f"https://{account}.vault.azure.net/"
-        b_service = BlobServiceClient(the_url, credential=self.env.credential)
-
         if Path(a_file): 
             remove(a_file)
         
+        b_service = self.get_blob_service(account)
         the_blob = b_service.get_blob_client(container, blob)
         with open(a_file, 'wb') as _b: 
             b_data = the_blob.download_blob()

@@ -1,11 +1,10 @@
 from functools import reduce
 import numpy as np
-import pandas as pd
 from pandas import DataFrame as pd_DF, Series as pd_S
 from pyspark.sql import functions as F, types as T
 from pyspark.sql.column import Column as spk_Col
 from pyspark.sql.dataframe import DataFrame as spk_DF
-from typing import List, Dict, Union
+from typing import Union
 
 
 def colsdf_prepare(a_df: pd_DF) -> pd_DF: 
