@@ -1,8 +1,8 @@
 # Diego Villamil, EPIC
-# CDMX, 4 de noviembre de 2021
 
 from collections import ChainMap
 from datetime import datetime as dt, timedelta as delta, date
+from delta.tables import DeltaTable as Δ
 from httpx import (Client, AsyncClient, 
     Auth as AuthX, post as postx, BasicAuth as BasicX)
 from itertools import groupby
@@ -11,32 +11,18 @@ from math import ceil
 from operator import itemgetter
 import pandas as pd
 from pandas import Series as pd_S, DataFrame as pd_DF
+from pyspark.sql import (functions as F, types as T, 
+        DataFrame as spk_DF)
 from typing import Union
 from pytz import timezone
 from uuid import uuid4
-
-try: 
-    from delta.tables import DeltaTable as Δ
-except ImportError: 
-    Δ = None
-try: 
-    from pyspark.sql import (functions as F, types as T, 
-        DataFrame as spk_DF)
-except ImportError:
-    F = T = spk_df = None
-try: 
-    import xmltodict
-except ImportError:
-    xmltodict = None
+import xmltodict
 
 from src.utilities import encode64, dict_minus, snake_2_camel
 from src.core_models import Fee, FeeSet
 from config import (ENV, RESOURCE_SETUP, 
     DATALAKE_PATHS as paths)
 
-resources      = RESOURCE_SETUP[ENV]
-slv_path       = paths['abfss'].format('silver', resources['storage'])
-at_withdrawals = f"{slv_path}/{paths['withdrawals']}/delta"
 
 API_LIMIT = 500
 cdmx_tz = timezone('America/Mexico_City')
@@ -83,55 +69,47 @@ class SAPSession(Client):
         'contract-current' : "v1/cac/ContractSet",
         'contract-loans'   : "v1/lac/ContractSet", 
         'fees-apply'       : "v1/feemass/FeeSet",
+        'fees-detail'      : "v1/feemass/FeeDetailSet", 
         'fees-verify'      : "v1/feemass/StatusFeeSet", 
         'api-defs'         : "v1/oapi/oAPIDefinitionSet" } 
     
-    
+
     # Business Specs
     commission_labels = {
-        'atm': (600405, 'ops-commissions-atm-001')}
-    
+        'atm': (600404, 'ops-commissions-atm-001')}
     
     def process_commissions_atpt(self, spark,
             atpt_df: Union[spk_DF, pd_DF], 
-            cmsn_key='atm', **kwargs): 
+            cmsn_key='atm', out='responses', **kwargs): 
         
+        if out not in ['responses', 'dataframe']: 
+            raise Exception(f"OUT must be [responses, dataframe]")
+
         by_k   = kwargs.get('how-many', API_LIMIT)
         update = kwargs.get('update', True)
         
-        feemass_set = {f'feemass_{a_col}' for a_col in ['external_id', 'process_date']}
-        fees_set    = {f'fee_{a_col}' for a_col in ['type_code', 'posting_date', 'value_date', 
-                    'amount', 'currency', 'payment_note']}
-        
-        base_wdraws = spark.read.load(at_withdrawals)                       
-        join_wdraws = ("b_core_acct = account_id" 
-            + " AND atpt_mt_ref_nbr = txn_ref_number")
-        w_status    = {'b_wdraw_commission_status': 'feemass_status'}
-        
+        if out == 'responses': 
+            output = []
+        elif out == 'dataframe': 
+            fees_cols = [
+                'account_id', 'type_code', 'posting_date', 'value_date', 
+                'amount', 'currency', 'payment_note', 'transaction_id', 
+                'external_id', 'process_date', 'status']
+                # 'pos_fee', 'status_process', 'status_descr', 'log_msg',
+            output = pd_DF(columns=fees_cols)
+
         fees_iterator = self.iter_feemass_commissions(atpt_df, cmsn_key, by_k)
-        responses = []
-        for feeset in fees_iterator: 
-            fees_resp = self.call_feeset(feeset)
-            responses.append(fees_resp)
-            if fees_resp.status_code == 200 and update: 
-                fees_df  = feeset.as_dataframe(w_status=1)
-                fees_spk = spark.createDataFrame(fees_df).toDF()
-                (base_wdraws
-                    .merge(fees_spk, join_wdraws)
-                    .whenMatchedUpdate(
-                        set={**w_status, **fees_set, **feemass_set})
-                    .execute())
-        return responses
-    
-    
-    def verify_commissions_atpt(self, **f_args):
-        getters = {'url': self.api_calls['fees-verify']}             
-        if f_args: 
-            getters['params'] = {
-                '$filter': expr_dict_2_filter(f_args, camel_keys=False)}
-        the_resp = self.get(**getters)
-        return self.hook_d_results(the_resp, {'__metadata'})
         
+        for feeset in fees_iterator: 
+            if out == 'responses': 
+                fees_resp = self.call_feeset(feeset, out='response')
+                output.append(fees_resp)
+            elif out == 'dataframe': 
+                fees_resp = self.call_feeset(feeset, out='dataframe')
+                output = pd.concat([output, fees_resp], axis=0)
+            
+        return output
+    
     
     def iter_feemass_commissions(self, 
             atpt_df: Union[pd_DF, spk_DF], 
@@ -143,6 +121,7 @@ class SAPSession(Client):
         elif isinstance(atpt_df, spk_DF): 
             row_itr = enumerate(atpt_df.rdd.toLocalIterator())
             len_df  = atpt_df.count()
+
         iter_key = lambda ii_row: ii_row[0]//by_k
         n_grps   = ceil(len_df/by_k)
         
@@ -158,12 +137,14 @@ class SAPSession(Client):
             now_dt = dt.now(tz=cdmx_tz)
             a_uuid = str(uuid4())
             
-            fees_ls = [ Fee(**fees_fixed, 
-                    txn_ref_number = rr['atpt_mt_ref_nbr'], 
-                    account_id     = rr['b_core_acct'], 
-                    posting_date   = now_dt,
-                    value_date     = now_dt
-                    ) for _, rr in sub_itr]
+            pre_fees = [{
+                'posting_date':  now_dt,
+                'value_date'  : now_dt, 
+                'account_id'  : rr['b_core_acct'], 
+                'transaction_id': rr['atpt_mt_ref_nbr']}
+                for _, rr in sub_itr]
+            fees_ls = [ Fee(**fees_fixed, **pre) for pre in pre_fees]
+
             feeset_obj = FeeSet(
                 process_date = now_dt, 
                 external_id  = a_uuid, 
@@ -171,23 +152,86 @@ class SAPSession(Client):
             yield feeset_obj
         
         
-    def call_feeset(self, feemass: FeeSet, merge=False): 
+    def call_feeset(self, feemass: FeeSet, out='response'):
+        if out not in ['response', 'dataframe']: 
+            raise Exception(f"OUT must be [response, dataframe]")
+
         fee_data = feemass.json(by_alias=True,
-            exclude={'fee_detail': {'__all__': {'txn_ref_number'}}})
+            include={'external_id':True, 'process_date':True, 
+                'fee_detail': {'__all__': {
+                    'account_id', 'type_code', 'posting_date', 'value_date', 
+                    'amount', 'currency', 'payment_note'}}})
+        
         posters = {
             'url' : f"{self.api_calls['fees-apply']}", 
             'data': fee_data}
+
         the_resp = self.post(**posters)
+        if out == 'response': 
+            return the_resp
         
-        return the_resp
+        call_status = the_resp.json()['d']['Status']
+        # DETAILS no viene en el Response, así que se queda igual al Request. 
+        # Lo único que cambia del Request al Response es STATUS
+
+        λ_index = lambda an_id: f"{an_id+1:03d}"  # 5 -> '006'
+        resp_df = (feemass.as_dataframe()
+            .assign(
+                status = call_status, 
+                pos_fee = lambda df: pd_S(map(λ_index, df.index))))
+
+        if out == 'dataframe': 
+            return resp_df 
+
+             
+    def verify_commissions(self, out='dataframe', **f_args):
+        getters = {'url': self.api_calls['fees-verify']}        
+        # Requires: ExternalID, AccountID, PosFee
+        # Returns: {"d": {
+        #     "ExternalID": "string", "AccountID": "string", "PosFee": "str",
+        #     "ProcessDate": "string", "TransactionID": "string",  "TypeCode": "string",
+        #     "StatusProcess": "s", "StatusDescr": "string", "PostingDate": "string",
+        #     "ValueDate": "string", "Amount": "12340.99", "Currency": "strin",
+        #     "PaymentNote": "string", "LogMsg": "string" }]}     
+        if f_args: 
+            getters['params'] = {
+                '$filter': expr_dict_2_filter(f_args, camel_keys=True)}
+
+        the_outputs = ['response', 'd_results', 'fees_ls', 'dataframe']
+        if isinstance(out, str): 
+            out = the_outputs.index(out)
+        
+        the_resp = self.get(**getters)
+        if out == 0: 
+            return the_resp
     
-    
+        raw_data = the_resp.json()['d']['results']
+        if out == 1: 
+            return raw_data
+
+        fee_data = [Fee(**raw_fee) for raw_fee in raw_data]
+        if out == 2: 
+            return fee_data
+        
+        if len(fee_data): 
+            the_data = pd.DataFrame(dict(a_fee) for a_fee in fee_data)
+        else: 
+            the_data = pd.DataFrame(columns=Fee.__fields__)
+            
+        if out == 3:
+            return the_data
+        
+
     def call_person_set(self, params_x={}, **kwargs): 
         # Remove Keys from response list. 
-        output   = kwargs.get('output',  'DataFrame')
+
         how_many = kwargs.get('how_many', API_LIMIT)
         rm_keys  = ['__metadata', 'Roles', 'TaxNumbers', 'Relation', 'Partner', 'Correspondence']
-        
+        out      = kwargs.get('out',  'dataFrame')
+        the_outputs = ['response', 'list', 'dataframe'] 
+        if out not in the_outputs: 
+            raise Exception("OUT options are: {response, list, dataframe}")
+
         params = {'$top': how_many, '$skip': 0}
         params.update(params_x)
         p_getters = {
@@ -199,7 +243,8 @@ class SAPSession(Client):
         while True:
             prsns_resp = self.get(p_getters)
             post_responses.append(prsns_resp)
-            if output == 'Response': 
+
+            if out == 'response': 
                 return 
             
             prsns_ls = self.hook_d_results(prsns_resp)
@@ -210,23 +255,22 @@ class SAPSession(Client):
                 break
         
         # Procesamiento de Output.  
-        if output == 'Response': 
+        if out == 'response': 
             return prsns_resp
         
-        elif output == 'List': 
+        elif out == 'list': 
             return post_persons
         
-        elif output == 'DataFrame': 
+        elif out == 'dataFrame': 
             persons_mod = [dict_minus(a_person, rm_keys) for a_person in post_persons]
             persons_df = (pd.DataFrame(persons_mod)
                 .assign(ID = lambda df: df.ID.str.pad(10, 'left', '0')))
             return persons_df
         
-        else: 
-            raise Exception(f'Output {output} is not valid.')
 
-            
     def set_auth(self): 
+        
+
         auth_args = {
             'url' : self.config['auth']['url'], 
             'data': self.call_dict(self.config['auth']['data']), 
@@ -236,35 +280,48 @@ class SAPSession(Client):
         self.auth = SAPAuth('any_initial_token', auth_args)
         
     
-    def hook_d_results(self, response, rm_keys=None): 
+    def hook_d_results(self, response, rm_keys={'__metadata'}): 
         hook_allowed_types = ['application/json', 'application/atom+xml']
         
-        the_type = response.headers['Content-Type']
-        if   'application/json' in the_type: 
+        content_type = response.headers['Content-Type']
+        if   'application/json' in content_type: 
             the_json = response.json()
-            the_results = the_json['d']['results']
-        elif 'application/atom+xml' in the_type: 
+            the_results = the_json['d']['results'].copy()
+        elif 'application/atom+xml' in content_type: 
             the_results = _xml_results(response.text)
         else: 
-            raise Exception(f"Couldn't extract results from response with content type '{the_type}'.")
+            raise Exception(f"Couldn't extract results from response with content type '{contente_type}'.")
         
         if rm_keys:
             for e_result in the_results:
                 for kk in rm_keys: 
                     e_result.pop(kk)
-                
+
         return the_results
 
 
+class SAPAuth(AuthX): 
+    def __init__(self, token, post_args):
+        self.token = token
+        self.post_args = post_args
+    
+    def auth_flow(self, request):
+        response = yield request
+        if response.status_code == 401:
+            j_token = postx(**self.post_args).json()
+            self.token = j_token['access_token']
+            request.headers['Authorization'] = f"Bearer {self.token}"
+            yield request
 
-def expr_dict_2_filter(a_dict, camel_keys=False): 
+
+def expr_dict_2_filter(a_dict, camel_keys=True): 
     """SAP admits specific filter constructs."""
     def item_filter(a_key, a_val): 
         a_fltr = (f"({a_key} eq '{a_val}')" if isinstance(a_val, str)
             else " or ".join(f"({a_key} eq '{v_i}')" for v_i in a_val))
         return f"({a_fltr})"
     
-    mod_key = snake_2_camel if camel_keys else (lambda key: key)
+    mod_key = (lambda key: key) if camel_keys else snake_2_camel 
     d_fltr = " and ".join(item_filter(mod_key(kk), vv) 
             for kk, vv in a_dict.items())
     return d_fltr
@@ -274,6 +331,7 @@ def datetime_2_filter(sap_dt, range_how=None) -> str:
     """Filtros que sirven para la API de eventos."""
     dt_string = (lambda a_dt: 
             "datetime'{}'".format(a_dt.strftime('%Y-%m-%dT%H:%M:%S')))
+
     if range_how == 'functions': 
         dt_clause = lambda cmp_dt : "{}(EventDateTime,{})".format(*cmp_dt)
     else: 
@@ -324,21 +382,6 @@ def _xml_results(xml_text):
     return entry_rslts
 
 
-class SAPAuth(AuthX): 
-    def __init__(self, token, post_args):
-        self.token = token
-        self.post_args = post_args
-    
-    def auth_flow(self, request):
-        response = yield request
-        if response.status_code == 401:
-            j_token = postx(**self.post_args).json()
-            self.token = j_token['access_token']
-            request.headers['Authorization'] = f"Bearer {self.token}"
-            yield request
+
             
    
-
-        
-    
- 

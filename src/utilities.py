@@ -1,6 +1,7 @@
 import base64
 from datetime import datetime as dt
 from delta.tables import DeltaTable as Δ
+from functools import reduce, partial
 from operator import attrgetter
 from pathlib import Path
 import pandas as pd
@@ -10,6 +11,8 @@ from pyspark.sql import (functions as F, types as T,
     DataFrame as spk_DF, Column, Row)
 from os import path
 import re
+from toolz.functoolz import identity, compose
+from toolz.dicttoolz import valmap
 from typing import Union
 
 
@@ -17,12 +20,22 @@ encode64 = (lambda a_str:
     base64.b64encode(a_str.encode('ascii')).decode('ascii'))
 
 
-def snake_2_camel(snake, first_too=True):
-    wrd_0, *wrds = snake.split('_')
+def as_callable(yy): 
+    λ_y = yy if callable(yy) else (lambda xx: yy)
+    return λ_y
+    
+
+def snake_2_camel(snake, first_too=True, pre_sub={}, post_sub={}):
+    f_sub = lambda wrd, k_v: re.sub(*k_v, wrd)
+    
+    snake_1 = reduce(f_sub, pre_sub.items(), snake)
+    wrd_0, *wrds = snake_1.split('_')
     if first_too: 
         wrd_0 = wrd_0.capitalize()
-    caps = (wrd_0, *(ww.capitalize() for ww in wrds))
-    return ''.join(caps)
+    caps_1 = (wrd_0, *(ww.capitalize() for ww in wrds))
+    caps_2 = ''.join(caps_1)
+    caps = reduce(f_sub, post_sub.items(), caps_2)
+    return caps
     
     
 def dict_minus(a_dict, key_ls, copy=True): 
@@ -68,7 +81,6 @@ def path_type(a_path: str, spark):
         return 'Folder'
  
         
-
 def file_exists(a_path: str): 
     if a_path.startswith('/dbfs'):
          return path.exists(a_path)
@@ -113,8 +125,17 @@ def dbks_path(a_path: Path):
     return b_str
 
 
-def upsert_delta(spark, new_tbl, base_path, how, 
-                 on_cols:Union[list, dict]): 
+def when_plus(when_dict): 
+    λ_when = lambda ff, k_v: ff.when(k_v[1], F.lit(k_v[0]))
+    w_dict = when_dict.copy()
+    w_else = w_dict.get(None, None)
+    F_when  = reduce(λ_when, w_dict.items(), F)
+    return F_when.otherwise(F.lit(w_else))
+
+
+
+def upsert_delta(spark, new_tbl, base_path, 
+        how, on_cols:Union[list, dict]): 
     if how == 'simple': 
         if not isinstance(on_cols, list): 
             raise Exception("ON_COLS must be of type LIST.")
@@ -130,14 +151,17 @@ def upsert_delta(spark, new_tbl, base_path, how,
         if not isinstance(on_cols, dict): 
             raise Exception("ON_COLS must be of type DICT.")
         ids_cc, cmp_cc = map(on_cols.get, ['ids', 'cmp'])
+
         s_delete = (spark.read
             .load(base_path)
             .join(new_tbl, how='leftsemi', on=ids_cc)
             .join(new_tbl, how='leftanti', on=ids_cc + cmp_cc)
             .withColumn('to_delete', F.lit(True)))
+
         t_merge = (new_tbl
             .withColumn('to_delete', F.lit(False))
             .unionByName(s_delete))
+
         mrg_condtn = ' AND '.join(f"(t1.{cc} = t0.{cc})" for cc in ids_cc+cmp_cc) 
         new_values = {cc: F.col(f"t1.{cc}") for cc in new_tbl.columns}
         
@@ -154,7 +178,28 @@ def get_date(a_col: Union[str, Column]) -> Column:
     date_reg = r'20[\d\-]{8}'
     date_col = F.to_date(F.regexp_extract(a_col, date_reg, 0), 'yyyy-mm-dd')
     return date_col
-    
-    
+
+
+class MatchCase(): 
+    def __init__(self, case_dict: dict, via=None): 
+        self._via = via
+        self._case_dict = case_dict.copy()
+
+        self.via = as_callable(via) if (via is not None) else (identity)
+        case_dict.setdefault(None)
+        self.case_dict = valmap(as_callable, case_dict)
+        
+    def __call__(self, xx): 
+        kk = self.via(xx)
+        vv = self.case_dict.get(kk)
+        return vv(xx)
+
+
+class partial2(partial): 
+    def __call__(self, *args, **keywords):
+        keywords = {**self.keywords, **keywords}
+        iargs = iter(args)
+        args = (next(iargs) if arg is ... else arg for arg in self.args)
+        return self.func(*args, *iargs, **keywords)
     
     

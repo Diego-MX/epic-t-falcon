@@ -1,5 +1,6 @@
 pandas
 pydantic
+toolz
 
 # Utilities
 azure-identity

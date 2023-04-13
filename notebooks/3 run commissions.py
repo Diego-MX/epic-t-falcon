@@ -67,7 +67,6 @@ PAGE_MAX     = 200   # Max número de registros (eg. PersonSet) para pedir de un
 from collections import OrderedDict
 from datetime import datetime as dt, date, timedelta as delta
 from delta.tables import DeltaTable as Δ
-from functools import reduce
 import pandas as pd
 from pandas import DataFrame as pd_DF, Series as pd_S
 from pyspark.sql import (DataFrame as spk_DF, 
@@ -76,42 +75,126 @@ from pytz import timezone
 
 # COMMAND ----------
 
-# Para desbichar el código, este bloque que actualiza los módulos de importación/modificación.  
-# A veces también se encuentra como: 
-#>> %load_ext autoreload
-#>> %autoreload 2
-
-from importlib import reload
-from src import core_banking; reload(core_banking)
-from src import tools, utilities; reload(tools); reload(utilities)
-import config; reload(config)
-
-# COMMAND ----------
-
 from src import tools, utilities as src_utils
 from src.core_banking import SAPSession
 from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP,  
+    ENV, SERVER, RESOURCE_SETUP,
     DATALAKE_PATHS as paths)
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
 app_environ.sparktransfer_credential()
 
+core_starter = app_environ.prepare_coresession('qas-sap')
+core_session = SAPSession(core_starter)
+
 slv_path       = paths['abfss'].format('silver', resources['storage'])
 at_datasets    = f"{slv_path}/{paths['datasets']}"  
-at_withdrawals = f"{slv_path}/{paths['withdrawals']}/delta"
+at_commissions = f"{slv_path}/{paths['commissions']}/delta"
 
 # Fiserv es el proveedor que maneja estos archivos:  txns, clientes. 
-atptx_loc      = f"{at_datasets}/atpt/delta"
-dambs_loc      = f"{at_datasets}/dambs/delta"
+atptx_loc  = f"{at_datasets}/atpt/delta"
 
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ## 1. Update Previous Commissions
+# MAGIC 
+# MAGIC Estatus en comisiones:   
+# MAGIC `'0.0': '0.0'`    
+# MAGIC `'1'   : 'Creado'`     
+# MAGIC `'2'   : 'Procesado'`  
+# MAGIC `'3'   : 'No procesado'`  
+
+# COMMAND ----------
+
+def update_commissions(cmsn_api, at_commissions, cmsn_df=None): 
+    # Check that is non-empty cmsns_df with
+    #     acct_id, ext_id, stats = Fees Uploaded for Postprocessi
+    #    (cmsn_df, cmsn_api) = sub_comsns, api_comsns
+    
+    if (cmsn_df is not None) and (cmsn_api.shape[0] != cmsn_df.count()): 
+        print(f"Corresponding Delta and API size don't match.")
+        #raise Exception(f"Corresponding Delta and API size don't match.")
+    
+    if (cmsn_df is not None) and (1 != cmsn_df.select('transaction_id').distinct().count()):
+        print(f"There are repeated transactions in the given commission and account.")
+        #raise Exception(f"There are repeated transactions in the given commission and account.")
+    
+    cmsn_api = spark.createDataFrame(cmsn_api)
+    
+    on_str = " AND ".join(f"(t1.`{col}` = t0.`{col}`)" 
+        for col in ['pos_fee', 'external_id', 'account_id'])
+    
+    set_update = {col: f't1.`{col}`' for col in [
+        'amount', 'status_process', 'status_descr', 'log_msg']}
+    
+    insert_vals = {col: f't1.{col}' for col in cmsn_api.columns}
+    
+    (Δ.forPath(spark, at_commissions).alias('t0')
+        .merge(cmsn_api.alias('t1'), on_str)
+        .whenMatchedUpdate(set=set_update)
+        .whenNotMatchedInsert(values=insert_vals)
+        .execute())
+    return
+
+# COMMAND ----------
+
+unproc_comsns = (spark.read
+    .load(at_commissions)
+    .filter(~F.col('status_process').isin(['2', '3'])))
+
+unproc_ids = (unproc_comsns
+    .select('external_id')
+    .distinct()
+    .collect())
+
+summaries = {
+    'n_commissions': F.count('transaction_id'), 
+    'n_txns'       : F.countDistinct('transaction_id'), 
+    'n_feecalls'   : F.countDistinct('external_id')}
+
+print(f"There are {len(unproc_ids)} external IDs not processed.")
+(spark.read
+    .load(at_commissions)
+    .groupBy('status_process', 'status_descr')
+    .agg(*[vv.alias(kk) for kk, vv in summaries.items()])
+    .orderBy('status_process')
+    .show())
+
+# COMMAND ----------
+
+for ii, id_row in enumerate(unproc_ids):
+    print(ii, id_row.external_id)
+    sub_comsns = (spark.read
+        .load(at_commissions)
+        .filter(F.col('external_id') == id_row.external_id))
+    
+    api_comsns = (core_session
+        .verify_commissions(ExternalID=id_row.external_id))
+    
+    if api_comsns.shape[0] == 0: 
+        print(a_row.b_core_acct)
+        continue
+        
+    update_commissions(api_comsns, at_commissions, sub_comsns)
+
+# COMMAND ----------
+
+print(f"There are {len(unproc_ids)} external IDs not processed.")
+(spark.read
+    .load(at_commissions)
+    .groupBy('status_process', 'status_descr')
+    .agg(*[vv.alias(kk) for kk, vv in summaries.items()])
+    .orderBy('status_process')
+    .show())
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC 
-# MAGIC ## 1. Withdrawals Table
+# MAGIC ## 2. Withdrawals Table
 # MAGIC Starting from the transactions universe, consider the ones that are withdrawals.  
 # MAGIC Prepare the corresponging attributes to manage them.  
 
@@ -131,36 +214,14 @@ dambs_loc      = f"{at_datasets}/dambs/delta"
 # Alguna información complementaria: 
 
 # b_wdraw_acquirer_code:  {110072: Banorte, ...}
-# b_wdraw_commission_status: {
-#     -1: not-commissionable
-#     -2: not-posted (via date)
-#      0: not-applied
-#      1: sent to commission
-#      2: applied}
 
 # atpt_mt_category_code: {
 #    5045, 5311, 5411, 5661, 7994
 #    6010: cash, 6011: atm, 
 #    (596[02456789], 7995): high-risk-merchant}
 
-spk_types = {
-    'str': T.StringType, 'datetime': T.TimestampType, 'dbl': T.DecimalType}
-  
-sap_resp_cols = {
-    #'fee_account_id'      : 'str',
-    #'fee_txn_ref_number'  : 'str',   
-    #'feemass_status'      : 'str'
-    'fee_type_code'        : 'str',       
-    'fee_posting_date'     : 'datetime', 
-    'fee_value_date'       : 'datetime',
-    'fee_amount'           : 'dbl',
-    'fee_currency'         : 'str',  
-    'fee_payment_note'     : 'str',  
-    'feemass_external_id'  : 'str',  
-    'feemass_process_date' : 'datetime'}
 
-
-w_txn_ref = (W.partitionBy('atpt_mt_ref_nbr')
+w_txn_ref =    (W.partitionBy('atpt_mt_ref_nbr')
     .orderBy(F.col('atpt_mt_eff_date').desc()))
 w_month_acct = (W.partitionBy('atpt_acct', 'b_wdraw_month')
     .orderBy(F.col('atpt_mt_eff_date').desc()))
@@ -168,7 +229,9 @@ w_inhouse    = (W.partitionBy('atpt_acct', 'b_wdraw_month', 'b_wdraw_is_inhouse'
     .orderBy(F.col('atpt_mt_eff_date').desc()))
 
 purchase_to_savings = (lambda a_col: 
-    F.concat_ws('-', F.substring(a_col, 1, 11), F.substring(a_col, 12, 3), F.lit('MX')))
+    F.concat_ws('-', F.substring(a_col, 1, 11), 
+                     F.substring(a_col, 12, 3), 
+                     F.lit('MX')))
         
 wdraw_status = (F.when(~F.col('b_wdraw_is_commissionable'), -1)
                  .when(F.col('atpt_mt_posting_date').isNull(), -2)
@@ -178,7 +241,7 @@ wdraw_status = (F.when(~F.col('b_wdraw_is_commissionable'), -1)
 wdraw_withcols = OrderedDict({
     'b_core_acct'        : purchase_to_savings('atpt_mt_purchase_order_nbr'), 
     'b_wdraw_acq_code'   : F.substring(F.col('atpt_mt_interchg_ref'), 2, 6), 
-    'b_wdraw_is_inhouse' : F.col('b_wdraw_acq_code') == 11072,
+    'b_wdraw_is_inhouse' : F.col('b_wdraw_acq_code') == F.lit('11072'),
     'b_wdraw_month'      : F.date_trunc('month', F.col('atpt_mt_eff_date')).cast(T.DateType()), 
     'b_wdraw_rk_txns'    : F.row_number().over(w_txn_ref), 
     'b_wdraw_rk_acct'    : F.row_number().over(w_month_acct), 
@@ -187,9 +250,6 @@ wdraw_withcols = OrderedDict({
     'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') | (F.col('b_wdraw_rk_inhouse') > 3),  
     'b_wdraw_commission_status': wdraw_status, 
     })
-
-wdraw_withcols.update({kk: F.lit(None).cast(spk_types[vv]()) 
-    for kk, vv in sap_resp_cols.items()})
 
 wdraw_allcols = ['atpt_acct', 'atpt_mt_eff_date', 'atpt_mt_category_code',  
     'atpt_mt_card_nbr', 'atpt_mt_desc', 'atpt_mt_amount', 'atpt_mt_purchase_order_nbr', 
@@ -200,11 +260,12 @@ wdraw_txns_0 = (spark.read.format('delta')
     .load(atptx_loc)
     .filter(F.col('atpt_mt_category_code').isin([6010, 6011])))
 
+# Aquí asumimos que el REF_NUM es único.  Pero necesitamos validarlo. 
 wdraw_txns = (tools.with_columns(wdraw_txns_0, wdraw_withcols)
     .select(wdraw_allcols)
-    .filter(F.col('b_wdraw_rk_txns') == 1))
+    .filter(F.col('b_wdraw_rk_txns') == 1))   
 
-display(wdraw_txns)
+wdraw_txns.display()
 
 # COMMAND ----------
 
@@ -215,47 +276,23 @@ display(wdraw_txns)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC **Nota:** Consideremos obtener las comisiones cobradas de SAP en vez de gestionar nuestra tabla.  
-
-# COMMAND ----------
-
 # Obtener las comisiones cobrables.  
-cdmx_tz    = timezone('America/Mexico_City')
-today_date = dt.now(tz=cdmx_tz).date()
-since_date = today_date - delta(COMSNS_FRAME)
+now_mx = dt.now(tz=timezone('America/Mexico_City'))
+today_date = now_mx.date()
+since_date = today_date - delta(days=COMSNS_FRAME)
 
-# Since there is nothing to compare against on the first date,  
-# just write it down and check that logic is idempotent. 
-if not Δ.isDeltaTable(spark, at_withdrawals): 
-    wdraw_txns.write.format('delta').save(at_withdrawals)
-
-miscommissions = (spark.read
-    .load(at_withdrawals)
-    .filter(F.col('b_wdraw_is_commissionable') 
-         & (F.col('b_wdraw_commission_status') == 0))  # Por alguna razón se repiten. 
-    .withColumnRenamed('b_wdraw_commission_status', 'status_0'))  
-
-# Se toma primero el nuevo dato. 
-join_on     = ['atpt_mt_interchg_ref', 'atpt_mt_ref_nbr']
-join_diff   = ['status_0', 'status_1']
-join_select = [F.coalesce(wdraw_txns[a_col], miscommissions[a_col]).alias(a_col)
-    for a_col in miscommissions.columns 
-    if  a_col not in join_on + join_diff]
+pre_commissions = (spark.read
+    .load(at_commissions)
+    .withColumnRenamed('transaction_id', 'atpt_mt_ref_nbr'))
 
 commissions = (wdraw_txns
     .filter(F.col('b_wdraw_is_commissionable') 
          & (F.col('b_wdraw_commission_status') == 0)
          & (F.col('b_wdraw_rk_txns') == 1))
-    .withColumnRenamed('b_wdraw_commission_status', 'status_1')              
-    .join(miscommissions, how='outer', on=join_on)
     .filter(wdraw_txns['atpt_mt_posting_date'] >= since_date)
-    .select(*(join_on + join_diff + join_select)))
-    
-cmsns_summary = (commissions
-    .select(['status_0', 'status_1'])
-    .summary('count'))
-cmsns_summary.show()
+    .join(pre_commissions, how='anti', on='atpt_mt_ref_nbr'))
+
+commissions.display()
 
 # COMMAND ----------
 
@@ -265,32 +302,92 @@ cmsns_summary.show()
 
 # COMMAND ----------
 
-from importlib import reload
-import config; reload(config)
-from src import core_models; reload(core_models)
-from src import core_banking; reload(core_banking)
-from src import tools; reload(tools)
+# Inicialmente necesita 
+#     'atpt_mt_ref_nbr': 'transaction_id'; 
+#     'b_core_acct': 'account_id'. 
 
-from src.core_banking import SAPSession
+# Y genera:   'process_date', 'external_id'; 
+#     'type_code', 'currency', 'payment_note', 'posting_date', 'value_date'
+#     'status' 
 
-core_starter = app_environ.prepare_coresession('qas-sap')
-core_session = SAPSession(core_starter)
+# Finalmente la verificación agregaría estos campos. 
+verification_cols = ['status_process', 'status_descr', 'log_msg', 'amount']  
+# POS_FEE is also created afterwards, but we create it artificially in parallel. 
+
+process_df = (core_session
+    .process_commissions_atpt(spark, commissions, 
+           cmsn_key='atm', out='dataframe', **{'how-many': 50})
+    .assign(**{col: None for col in verification_cols}))
+
+if not process_df.empty: 
+    process_spk = spark.createDataFrame(process_df)
+
+    (process_spk.write
+         .mode('append')
+         .save(at_commissions))
+
+    process_spk.display()
+else: 
+    print(f"Commissions DF is empty.")
 
 # COMMAND ----------
 
-responses = core_session.process_commissions_atpt(spark, 
-    commissions, 'atm', **{'how-many': 50})
+# MAGIC %md 
+# MAGIC # Manage Tables
 
 # COMMAND ----------
 
+# Iniciar la tabla. 
+debug = False
+if debug: 
+    spk_comisiones.write.save(at_commissions)
+
+# COMMAND ----------
+
+# Borrar la tabla.
+debug = False
+if debug: 
+    dbutils.fs.rm(at_commissions, True)
+
+# COMMAND ----------
+
+recalculate = False
+if recalculate: 
+
+    on_accounts = wdraw_txns.select('b_core_acct').distinct().collect()
+
+    for a_row in on_accounts: 
+        if a_row.b_core_acct == '000--MX': 
+            continue 
+        print(a_row.b_core_acct)
+
+        sub_comsns = (spark.read.load(at_commissions)
+            .filter(F.col('account_id') == a_row.b_core_acct))
+        api_comsns = (core_session
+            .verify_commissions(AccountID=a_row.b_core_acct))
+
+        if api_comsns.shape[0] == 0: 
+            print(a_row.b_core_acct)
+            continue
+        update_commissions(at_commissions, sub_comsns, api_comsns)
 
 
 # COMMAND ----------
 
-# MAGIC %md  
-# MAGIC ## 4. Refresh Commission Status
-# MAGIC - Las respuestas (API) pueden o no ser cobradas en el momento.  
-# MAGIC - En su momento -de hecho- 
+# Alter Table 
+debug = False
+if debug:  
+    a_df = (spark.read
+        .load(at_commissions)  # convert r"STATUS(_DESCR|_PROCESS)?" to STRINGTYPE. 
+        .withColumn('status', F.col('status').cast(T.StringType()))
+        .withColumn('status_descr', F.col('status_descr').cast(T.StringType()))
+        .withColumn('status_process', F.col('status_process').cast(T.StringType()))
+        .withColumn('log_msg', F.col('log_msg').cast(T.StringType())))
+    (a_df.write
+        .mode('overwrite')
+        .option('overwriteSchema', True)
+        .save(at_commissions))
+
 
 # COMMAND ----------
 

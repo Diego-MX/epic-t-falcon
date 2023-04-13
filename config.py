@@ -1,20 +1,12 @@
-from os import environ, getenv, remove
-import re
-
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from azure.storage.blob import BlobServiceClient
+from dotenv import load_dotenv
+from os import environ, getenv, remove
 from pathlib import Path
-try: 
-    from pyspark.dbutils import DBUtils
-except ImportError: 
-    DBUtils = None
-try:
-    from dotenv import load_dotenv
-    load_dotenv('.env', override=True)
-except ImportError: 
-    load_dotenv = None
+import re
 
+load_dotenv('.env', override=True)
 
 ENV = environ.get('ENV_TYPE')
 SERVER = environ.get('SERVER_TYPE')
@@ -101,7 +93,7 @@ DATALAKE_PATHS = {
     'reports'      : "ops/regulatory/transformation-layer",  # R2422, SISPAGOS,
     'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.  
     'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
-    'withdrawals'  : "ops/account-management/withdrawals",   # todos los retiros
+    #'withdrawals'  : "ops/account-management/withdrawals",   # todos los retiros
     'commissions'  : "ops/account-management/commissions",   # retiros de cajeros
     'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI. 
 }
@@ -211,6 +203,7 @@ class ConfigEnviron():
         elif self.server == 'dbks': 
             if self.spark is None: 
                 raise("Please provide a spark context on ConfigEnviron init.")
+            from pyspark.dbutils import DBUtils
             dbutils = DBUtils(self.spark)
             get_secret = (lambda key: 
                 dbutils.secrets.get(scope=self.config['scope'], key=re.sub('_', '-', key.lower())))
