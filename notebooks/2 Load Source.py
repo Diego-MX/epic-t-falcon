@@ -124,6 +124,15 @@ for a_key, on_cols in table_keys.items():
 
 # COMMAND ----------
 
+dbutils.fs.ls('abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/card-management/datasets/')
+
+# COMMAND ----------
+
+# dbutils.fs.ls('abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/card-management/datasets/')
+ref_Δ.display()
+
+# COMMAND ----------
+
 # MAGIC %md 
 # MAGIC # Adjustments
 
