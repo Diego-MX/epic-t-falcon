@@ -1,6 +1,8 @@
 from os import environ, getenv, remove
 import re
 
+HASH_OFFSET = 123456789
+
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from azure.storage.blob import BlobServiceClient
