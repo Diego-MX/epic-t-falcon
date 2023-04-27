@@ -1,18 +1,23 @@
-from os import environ, getenv
+from os import environ, getenv, remove
 import re
 
-from azure.identity import ClientSecretCredential
-from azure.identity._credentials.default import DefaultAzureCredential
+HASH_OFFSET = 123456789
+
+from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
+from azure.storage.blob import BlobServiceClient
+from pathlib import Path
 try: 
     from pyspark.dbutils import DBUtils
 except ImportError: 
     DBUtils = None
 try:
     from dotenv import load_dotenv
+    load_dotenv('.env', override=True)
 except ImportError: 
     load_dotenv = None
-    
+
+
 ENV = environ.get('ENV_TYPE')
 SERVER = environ.get('SERVER_TYPE')
 CORE_ENV = environ.get('CORE_ENV')
@@ -26,7 +31,7 @@ RESOURCE_SETUP = {
         'scope'   : 'eh-core-banking', 
         'sp_keys' : { # oauth-databricks-qas
             'tenant_id'        : (1, 'aad-tenant-id'), 
-            'subscription_id'  : (1, 'sp-core-events-subscription'), 
+            'subscription_id'  : (1, 'sp-core-events-suscription'), 
             'client_id'        : (1, 'sp-core-events-client'), 
             'client_secret'    : (1, 'sp-core-events-secret')}, 
         'storage' : 'stlakehyliaqas', 
@@ -51,7 +56,6 @@ RESOURCE_SETUP = {
         } 
     }
 }
-
 
 
 CORE_SETUP = {
@@ -87,54 +91,59 @@ CORE_SETUP = {
 # Env-independent Usage Variables. 
 
 DATALAKE_PATHS = {
-    'spei'     : "ops/transactions/spei", 
-    'blob'     : "https://{}.blob.core.windows.net/",   # STORAGE
-    'abfss'    : "abfss://{}@{}.dfs.core.windows.net",  # CONTAINER(bronze|silver|gold), STORAGE
-    'from-cms' : "ops/regulatory/card-management/transformation-layer", 
-    'prepared' : "ops/regulatory/card-management/transformation-layer/unzipped-ready", 
-    'reports'  : "ops/regulatory/transformation-layer",
-    'datasets' : "ops/card-management/datasets",
-    'commissions': "ops/account-management/commissions",
+    'blob'         : "https://{}.blob.core.windows.net",    # STORAGE
+    'abfss'        : "abfss://{}@{}.dfs.core.windows.net",   # CONTAINER(bronze|silver|gold), STORAGE
+    'btp'          : "ops/fraude/bronze/btp",                # ¿?
+    'spei'         : "ops/transactions/spei",                # ¿?
+    'spei2'        : "ops/fraude/bronze/spei",               # SPEI (original y conciliación)
+    'spei-gfb'     : "ops/core-banking/conciliations/recoif",# SPEI conciliación II. 
+    'spei-c4b'     : "ops/core-banking/conciliations/spei", 
+    'from-cms'     : "ops/regulatory/card-management/transformation-layer",  # 
+    'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready",  # Extraer y descomprimir
+    'reports'      : "ops/regulatory/transformation-layer",  # R2422, SISPAGOS,
+    'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.  
+    'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
+    'withdrawals'  : "ops/account-management/withdrawals",   # todos los retiros
+    'commissions'  : "ops/account-management/commissions",   # retiros de cajeros
+    'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI. 
 }
 
 DELTA_TABLES = {
-    'DAMNA' : ('damna',  'damna' , 'din_clients.slv_ops_cms_damna_stm'), 
-    'ATPTX' : ('atpt',   'atpt'  , 'farore_transactions.slv_ops_cms_atptx_stm'), 
-    'DAMBS1': ('dambs',  'dambs' , 'nayru_accounts.slv_ops_cms_dambs_stm'), 
-    'DAMBS2': ('dambs2', 'dambs2', 'nayru_accounts.slv_ops_cms_dambs2_stm'), 
-    'DAMBSC': ('dambsc', 'dambsc', 'nayru_accounts.slv_ops_cms_dambsc_stm')}
+    'damna' : 'din_clients.slv_ops_cms_damna_stm', 
+    'atpt'  : 'farore_transactions.slv_ops_cms_atptx_stm', 
+    'DAMBS1': 'nayru_accounts.slv_ops_cms_dambs_stm', 
+    'DAMBS2': 'nayru_accounts.slv_ops_cms_dambs2_stm', 
+    'DAMBSC': 'nayru_accounts.slv_ops_cms_dambsc_stm'}
 
 
-#  DAMBS
-#  AccountNumber STRING,
-#  CustomerNumber STRING,
-#  CardExpirationDate STRING,
-#  NumberUnblockedCards INT,
-#  CurrentBalanceSign STRING,
-#  CurrentBalance FLOAT,
-#  date DATE ... partition by. 
 
-# DAMNA
-#  CustomerNumber STRING,F
-#  Municipality STRING,
-#  GenderCode STRING,
-#  City STRING,
-#  NameTypeIndicator STRING,
-#  date DATE * partition by 
-
-# ATPTX
-# AccountNumber STRING,
-# EffectiveDate STRING,
-# TransactionType STRING,
-# TransactionSign STRING,
-# TransactionCode STRING,
-# TransactionAmountSign STRING,
-# TransactionAmount STRING,
-#  AcceptorCategoryCode STRING,
-#  TransactionChannel INT,
-#  date DATE *partition by
-
-
+LAYER_SETUP = {
+  'DateFormat' : '%Y%m%d',
+  'DAMNA' : {
+    'paths': { 
+      'zip'    : 'dbfs:/FileStore/',
+      'origen' : 'dbfs:/FileStore/DAMNA.txt',
+      'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/damna',
+      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMNA/DAMNA_Processed/'
+             }
+            },
+  'ATPTX' : {
+    'paths': { 
+      'zip'    : 'dbfs:/FileStore/',
+      'origen' : 'dbfs:/FileStore/ATPTX.txt',
+      'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/atptx',
+      'alias'  : 'por rellenar Data Diego',
+      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/ATPTX/ATPTX_Processed/'
+              }},
+  'DAMBS' : {
+    'paths': { 
+      'zip'    : 'dbfs:/FileStore/',
+      'origen' : 'dbfs:/FileStore/DAMBS.txt',
+      'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/dambs',
+      'alias'  : 'por rellenar Data Diego',
+      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMBS/DAMBS_Processed/'
+              }},
+}
 
 UAT_SPECS = {
     'DAMNA' : {
@@ -187,6 +196,7 @@ class ConfigEnviron():
     From then on, use PlatformResourcer to access other resources. 
     '''
     def __init__(self, env_type, server, spark=None):
+        print(f"Env, Server: {env_type}, {server}")
         self.env = env_type
         self.spark = spark
         self.server = server
@@ -227,6 +237,44 @@ class ConfigEnviron():
             the_creds = DefaultAzureCredential()
         self.credential = the_creds
         
+
+    def get_blob_service(self, account=None): 
+        if not hasattr(self, 'blob_services'): 
+            self.blob_services = {}
+        
+        if account is None: 
+            account = self.config['storage']
+        
+        if not hasattr(self, 'credential'): 
+            self.set_credential()
+
+        the_url = f"https://{account}.blob.core.windows.net/"
+        b_service = BlobServiceClient(the_url, credential=self.credential)
+        self.blob_services[account] = b_service
+        return b_service
+        
+        
+    def upload_storage_blob(self, a_file, blob, container, account=None, overwrite=False):
+        b_service = self.get_blob_service(account)
+
+        the_blob = b_service.get_blob_service(container, blob)
+        with open(a_file, 'rb') as _b: 
+            the_blob.upload_blob(_b, overwrite=overwrite)
+    
+
+    def download_storage_blob(self, a_file, a_blob, container, account=None, force=False): 
+        if force and Path(a_file).is_file(): 
+            remove(a_file)
+        
+        if Path(a_file).is_file(): 
+            return 
+            
+        b_service = self.get_blob_service(account)
+        the_blob = b_service.get_blob_client(container, a_blob)
+        with open(a_file, 'wb') as _b: 
+            b_data = the_blob.download_blob()
+            _b.write(b_data.readall())
+
         
     def sparktransfer_credential(self): 
         if not hasattr(self, 'call_dict'): 
@@ -244,7 +292,7 @@ class ConfigEnviron():
             pre_confs = {
                 f"fs.azure.account.auth.type.{blob_key}.dfs.core.windows.net"           : 'OAuth',
                 f"fs.azure.account.oauth.provider.type.{blob_key}.dfs.core.windows.net" : "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
-                f"fs.azure.account.oauth2.client.endpoint.{blob_key}.dfs.core.windows.net" : oauth2_endpoint,
+                f"fs.azure.account.oauth2.client.endpoint.{blob_key}.dfs.core.windows.net": oauth2_endpoint,
                 f"fs.azure.account.oauth2.client.id.{blob_key}.dfs.core.windows.net"    : sp_dict['client_id'],
                 f"fs.azure.account.oauth2.client.secret.{blob_key}.dfs.core.windows.net": sp_dict['client_secret']}
         elif gen_value == 'gen1': 

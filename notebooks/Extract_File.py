@@ -6,7 +6,7 @@
 # MAGIC Nos apoyamos del flujo en el _data factory_ que realiza lo siguiente:  
 # MAGIC - Captura los archivos entrantes a la carpeta. 
 # MAGIC - Identifica el tipo de capa al que corresponde el archivo. 
-# MAGIC - Manda como variables el tipo de capa `FileName` y archivo correpsondiente `ZipFileName`. 
+# MAGIC - Manda como variables el tipo de capa `FileName` y archivo correspondiente `ZipFileName`. 
 # MAGIC - Ejecuta las celdas de este _notebook_ como flujo del código, es decir transformarlo en tabla Δ. 
 
 # COMMAND ----------
@@ -28,6 +28,9 @@
 # MAGIC - Nunca usar "`from paquete import *`" sino darles variables a los módulos: (`sql.functions ~ F`, `sql.types ~ T`).  
 # MAGIC - Uso de los allegados [f-strings de Python](https://realpython.com/python-f-strings/):  
 # MAGIC   Por ejemplo:  `f"Tengo {edad} años"` en lugar de `"Tengo " + edad + " años"`
+# MAGIC - ¿cuáles serían los argumentos para definir una función de procesamiento de alto nivel?   
+# MAGIC   - `layer_zip_to_delta(archivo_in, archivo_out, tipo_archivo)` ...  
+# MAGIC   - `layer_zip_to_delta(archivo_in)` e inferir `tipo_archivo`, `archivo_out` mediante reglas internas ...  
 # MAGIC   
 # MAGIC ### Refactorización
 # MAGIC En `config.py` se pueden agrupar todos los `{DAMNA,DAMBS,ATPTX}_SETUP` como: 
@@ -77,105 +80,49 @@
 
 # COMMAND ----------
 
-# from pyspark.sql.F import *
 from pyspark.sql import functions as F, types as T
+from config import LAYER_SETUP as setup
+from config import LAYER_COLS as cols
+spark.sql(""" SET TIME ZONE '-06:00' """)
 
-from config import DAMNA_SETUP as damna
-from config import DAMNA_width_column_defs as damna_col
-from config import DAMBS_SETUP as dambs
-from config import DAMBS_width_column_defs as dambs_col
-from config import ATPTX_SETUP as atptx
-from config import ATPTX_width_column_defs as atptx_col
+# COMMAND ----------
 
 dbutils.widgets.text('FileName', '')
 dbutils.widgets.text('ZipFileName', '')
 FileName    = dbutils.widgets.get('FileName')
 ZipFileName = dbutils.widgets.get('ZipFileName')
+zip = setup[FileName]['paths']['zip']
+origen = setup[FileName]['paths']['origen']
+delta  = setup[FileName]['paths']['delta']
+procesados = setup[FileName]['paths']['procesados']
+dateFormat = setup['DateFormat']
+ts = spark.sql(""" select current_timestamp() - INTERVAL 6 HOUR  as ctime """).collect()[0]["ctime"]
+filexdia = f"{procesados}{FileName}_{ts.strftime(dateFormat)}.txt"
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC SET TIME ZONE '-06:00';
+df = spark.read.text(origen)
+df = (df.coalesce(1)
+        .withColumn("index", F.monotonically_increasing_id()))
+footer_index = df.count() - 1
+df = df.filter((df.index > 0) & (df.index < footer_index))
+df = df.select("value", *[F.substring("value", *v).alias(k) for k, v in list(cols[FileName].items())])
 
 # COMMAND ----------
 
 if FileName == 'ATPTX':
-    zip    = atptx['paths']['zip']
-    origen = atptx['paths']['origen']
-    delta  = atptx['paths']['delta']
-    procesados = atptx['paths']['procesados']
-    dateFormat = atptx['dateformat']
-    
-    ts = spark.sql(""" select current_timestamp() - INTERVAL 6 HOUR  as ctime """).collect()[0]["ctime"]
-    atptxdia = f"{procesados}ATPTX_{ts.strftime(dateFormat)}.txt"
-    
-    df = spark.read.text(origen)
-    df = (df.coalesce(1)
-            .withColumn("index", F.monotonically_increasing_id()))
-    footer_index = df.count() - 1
-    df = df.filter((df.index > 0) & (df.index < footer_index))
-    df = (df
-        .select("value", *[F.substring("value", *v).alias(k) for k, v in atptx_col.items()])
-        .withColumn('TransactionChannel', F.col('TransactionChannel').cast(T.IntegerType()))
-        .withColumn('date', F.current_date())
-        .drop('value'))
-    
-    df.write.format("delta").mode("append").save(delta)
-    dbutils.fs.mv(origen, atptxdia)
-    dbutils.fs.rm(zip + ZipFileName)
-
+  df = df.withColumn('TransactionChannel', F.col('TransactionChannel').cast(T.IntegerType()))
+elif FileName == 'DAMBS':
+  df = (df
+      .withColumn('NumberUnblockedCards', F.col('NumberUnblockedCards').cast(T.IntegerType()))
+      .withColumn('CurrentBalance', F.col('CurrentBalance').cast(T.FloatType())))
 elif FileName == 'DAMNA':
-    zip = damna['paths']['zip']
-    origen = damna['paths']['origen']
-    delta = damna['paths']['delta']
-    procesados = damna['paths']['procesados']
-    dateFormat = damna['dateformat']
-    
-    ts = spark.sql(""" select current_timestamp() - INTERVAL 6 HOUR as ctime """).collect()[0]["ctime"]
-    damnadia = f"{procesados}DAMNA_{ts.strftime(dateFormat)}.txt"
-    
-    df = spark.read.text(origen)
-    df = (df.coalesce(1)
-            .withColumn("index", F.monotonically_increasing_id()))
-    footer_index = df.count() - 1
-    
-    df =  df.filter((df.index > 0) & (df.index < footer_index))
-    df = (df
-        .select("value", *[F.substring("value", *v).alias(k) for k, v in damna_col.items()])
-        .drop('value')
-        .withColumn('date', F.current_date()))
-    
-    df.write.format("delta").mode("append").save(delta)
-    dbutils.fs.mv(origen, damnadia)
-    dbutils.fs.rm(zip + ZipFileName)
-
-elif Filename == 'DAMBS':
-    zip    = damna['paths']['zip']
-    origen = dambs['paths']['origen']
-    delta  = dambs['paths']['delta']
-    procesados = dambs['paths']['procesados']
-    dateFormat = dambs['dateformat']
-    
-    ts = spark.sql(""" select current_timestamp() - INTERVAL 6 HOUR  as ctime """).collect()[0]["ctime"]
-    dambsdia = f"{procesados}DAMBS_{ts.strftime(dateFormat)}.txt"
-    
-    df = spark.read.text(origen)
-    df = (df.coalesce(1)
-            .withColumn("index", F.monotonically_increasing_id()))
-    footer_index = df.count() - 1
-    
-    df = df.filter((df.index > 0) & (df.index < footer_index))
-    df = (df
-        .select("value", *[F.substring("value", *v).alias(k) for k, v in dambs_col.items()])
-        .withColumn('NumberUnblockedCards', F.col('NumberUnblockedCards').cast(T.IntegerType()))
-        .withColumn('CurrentBalance', F.col('CurrentBalance').cast(T.FloatType()))
-        .withColumn('date', F.current_date())
-        .drop('value'))
-    
-    df.write.format("delta").mode("append").save(delta)
-    dbutils.fs.mv(origen, dambsdia)
-    dbutils.fs.rm(zip + ZipFileName)
-
+    print("No hay tramsformaciones para DAMNA.")
 else: 
     print("FileName debe ser uno de: ATPTX, DAMNA, DAMBS.")
-  
+df = (df
+    .withColumn('date', F.current_date())
+    .drop('value')
+    .write.format("delta").mode("append").save(delta))
+dbutils.fs.mv(origen, filexdia)
+dbutils.fs.rm(zip + ZipFileName)       

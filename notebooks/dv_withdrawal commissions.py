@@ -2,11 +2,11 @@
 # MAGIC %md 
 # MAGIC # Introducción
 # MAGIC 
-# MAGIC Este _notebook_ se ejecuta como _job_ llamado `Withdrawal Commission Management`.  
-# MAGIC La función principal / inicial / única-(dic '22) es para el cobro de manejo de comisiones.  
+# MAGIC Este _notebook_ es para ejecutarse como _job_ de manejo de comisiones (de retiros).  
+# MAGIC Potencialmente podrá gestionar retiros en general, u otras comisiones.  
 # MAGIC Consta de los siguientes secciones:  
-# MAGIC &nbsp; 0. Leer las transacciones de ATPT, de acuerdo con el sistema de gestión de tarjetas Fiserv.  
-# MAGIC 1. Identificar las correspondientes a retiros de cajero, y los estatus de comisiones.  
+# MAGIC &nbsp; 0. Leer las transacciones de ATPT de acuerdo con el sistema de tarjetas Fiserv.  
+# MAGIC 1. Identificar las txns correspondientes a retiros de cajero, y los estatus de comisiones.  
 # MAGIC 2. Comparar con las comisiones existentes 
 # MAGIC 3. Aplicar las tarifas correspondientes.  
 # MAGIC 4. Actualizar la tabla de comisiones correspondiente.  
@@ -21,14 +21,21 @@
 # MAGIC   ... peeeero eso no se ha verificado.  
 # MAGIC 
 # MAGIC - La tabla de comisiones (registradas) se crea a partir de las respuestas de la API de SAP.  
-# MAGIC   Estas no se han completado, por lo que sigue en standby.   
 # MAGIC   
 # MAGIC - La API de comisiones requiere el número de cuenta en formato SAP, la tabla de transacciones lo tiene en formato Fiserv.  
-# MAGIC   La traducción de una a la otra se hace mediante la tabla `dambs` de Fiserv, pero no se ha comprobado.  
+# MAGIC   La traducción de una a la otra se hacía originalmente mediante la tabla `dambs` de Fiserv, pero ahora por medio de la columna `atpt_mt_purchase_order_nbr`.  
 # MAGIC   
-# MAGIC - Además del número de cuenta, la traducción de una entrada en `atpt` y luego como retiro de ATM, utiliza la clase de objetos (Py) `core_models.Fee` y `core_models.FeeSet`.  Se definieron simplemente a partir de la API, pero no han pasado las pruebas de completez.   
+# MAGIC - Además del número de cuenta, la traducción de una entrada en `atpt` y luego como retiro de ATM, utiliza la clase de objetos tipo Python `core_models.Fee` y `core_models.FeeSet`.  
+# MAGIC   Se definieron a partir de la API. 
+# MAGIC   El _swagger_ correspondiente se puede acceder [desde fiori][fiori] o [directo en código JSON][json].  
+# MAGIC   Para la segunda referencia se puede utilizar [este visualizador en la web][web-editor], o con herramientas de VS-Code. 
+# MAGIC   
 # MAGIC 
 # MAGIC Por el momento, eso es todo.  
+# MAGIC 
+# MAGIC [json]: https://apidev.apimanagement.us21.hana.ondemand.com/s4b/v1/oapi/oAPIDefinitionSet('000D3A57CECB1EED869D37419484D2F90002610')/$value
+# MAGIC [fiori]: https://qas-c4b-bdp.launchpad.cfapps.us21.hana.ondemand.com/site/c4b#C4BOpenAPIDirectory-Display?sap-ui-app-id-hint=saas_approuter_c4b.openAPI.baobcoapi00&/APIServiceSet/000D3A57CECB1EED869D37419484D2F90002610
+# MAGIC [web-editor]: https://editor.swagger.io/
 
 # COMMAND ----------
 
@@ -45,72 +52,59 @@
 
 # COMMAND ----------
 
-# Al ejecutarse como _notebook_, instalamos las librerías necesarias.  
-%pip install -r ../reqs_dbks.txt
+# MAGIC %pip install -r ../reqs_dbks.txt 
 
 # COMMAND ----------
 
-# Se definen algunas constantes de negocio.  
+# Algunas constantes de negocio.  
+COMSNS_FRAME = 300   # Max número de días para cobrar comisiones. 
+COMSNS_APPLY = 100   # Max número de comisiones para mandar en un llamado. 
+PAGE_MAX     = 200   # Max número de registros (eg. PersonSet) para pedir de un llamado. 
 
-COMSNS_FRAME = 15    # Max Days to charge commissions. 
-COMSNS_APPLY = 100   # Max number of commissions to apply at once. 
-PAGE_MAX     = 500   # Max number of records (eg. Person-Set) to request at once. 
 
+# COMMAND ----------
+
+from collections import OrderedDict
+from datetime import datetime as dt, date, timedelta as delta
+from delta.tables import DeltaTable as Δ
+from functools import reduce
+import pandas as pd
+from pandas import DataFrame as pd_DF, Series as pd_S
+from pyspark.sql import (DataFrame as spk_DF, 
+    functions as F, types as T, Window as W)
+from pytz import timezone
 
 # COMMAND ----------
 
 # Para desbichar el código, este bloque que actualiza los módulos de importación/modificación.  
-# El equivalente a veces se encuentra como: 
-# %load_ext autoreload
-# %autoreload 2
+# A veces también se encuentra como: 
+#>> %load_ext autoreload
+#>> %autoreload 2
 
 from importlib import reload
 from src import core_banking; reload(core_banking)
+from src import tools, utilities; reload(tools); reload(utilities)
 import config; reload(config)
-
 
 # COMMAND ----------
 
-# Importamos los módulos; y definir funciones y variables más específicas. 
-
-from collections import OrderedDict
-from datetime import datetime as dt, date, timedelta as delta
-from delta.tables import DeltaTable
-from functools import reduce
-import pandas as pd
-from pandas.core.frame import DataFrame as pd_DataFame 
-from pyspark.sql import functions as F, types as T
-from pyspark.sql.dataframe import DataFrame as spk_DataFrame
-from pyspark.sql.window import Window as W
-
-import src.schemas as src_spk
+from src import tools, utilities as src_utils
 from src.core_banking import SAPSession
 from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP, CORE_ENV, 
-    DATALAKE_PATHS as paths, 
-    DELTA_TABLES as delta_keys)
+    ENV, SERVER, RESOURCE_SETUP,  
+    DATALAKE_PATHS as paths)
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
 app_environ.sparktransfer_credential()
 
-at_datasets    = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['datasets']}"  
-at_commissions = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['commissions']}"  
+slv_path       = paths['abfss'].format('silver', resources['storage'])
+at_datasets    = f"{slv_path}/{paths['datasets']}"  
+at_withdrawals = f"{slv_path}/{paths['withdrawals']}/delta"
+
+# Fiserv es el proveedor que maneja estos archivos:  txns, clientes. 
 atptx_loc      = f"{at_datasets}/atpt/delta"
 dambs_loc      = f"{at_datasets}/dambs/delta"
-
-
-def spk_withcolumns(a_df: spk_DataFrame, cols_dict: dict) -> spk_DataFrame: 
-    func = lambda x_df, col_item: x_df.withColumn(col_item[0], col_item[1])
-    return reduce(func, cols_dict.items(), a_df)
-
-
-def pd_print(a_df: pd_DataFame, width=180): 
-    options = ['display.max_rows',    None, 
-               'display.max_columns', None, 
-               'display.width',       width]
-    with pd.option_context(*options):
-        print(a_df)
 
 
 # COMMAND ----------
@@ -123,32 +117,12 @@ def pd_print(a_df: pd_DataFame, width=180):
 
 # COMMAND ----------
 
-experimental = False
-if experimental: 
-    wdraw_txns_0 = (spark.read.format('delta')
-        .load(atptx_loc)
-        .withColumn('b_wdraw_acquirer_code', F.substring(F.col('atpt_mt_interchg_ref'), 2, 6))
-        .select('b_wdraw_acquirer_code')
-        .distinct())
-    display(wdraw_txns_0)
-
-# COMMAND ----------
-
-# Datos correspondientes a las cuentas/accounts/dambs complementan la información de las transacciones. 
-
-wdw_account =  W.partitionBy('ambs_acct').orderBy(F.col('file_date').desc())
-dambs_cols = ['file_date', 'b_account_num', 'b_rank_acct', 'b_sap_savings', 'ambs_sav_rtng_nbr',  'ambs_sav_acct_nbr']
-
-dambs_ref = (spark.read.format('delta')
-    .load(dambs_loc)
-    .withColumn('b_account_num', F.col('ambs_acct'))
-    .withColumn('b_rank_acct', F.row_number().over(wdw_account))
-    .withColumn('b_sap_savings', F.concat_ws('-', 
-        F.col('ambs_sav_acct_nbr'), F.col('ambs_sav_rtng_nbr').cast(T.IntegerType()), F.lit('MX')))
-    .filter(F.col('b_rank_acct') == 1)
-    .select(*dambs_cols))
-
-display(dambs_ref)
+# MAGIC %md 
+# MAGIC Ejemplo de retiro para comprobar que está en ATPT.  
+# MAGIC - `Cuenta`:  `02020000967`
+# MAGIC 
+# MAGIC **Nota** Los ATPTs no distinguen diferentes BPAs.   
+# MAGIC O sea, pueden venir cuentas y txns de diferentes de ellos en un mismo archivo. 
 
 # COMMAND ----------
 
@@ -161,41 +135,74 @@ display(dambs_ref)
 #     -1: not-commissionable
 #     -2: not-posted (via date)
 #      0: not-applied
-#      1: applied
-#      2: other status}
+#      1: sent to commission
+#      2: applied}
 
 # atpt_mt_category_code: {
 #    5045, 5311, 5411, 5661, 7994
 #    6010: cash, 6011: atm, 
 #    (596[02456789], 7995): high-risk-merchant}
 
-wdw_account =  W.partitionBy('atpt_acct', 'b_wdraw_month').orderBy('atpt_mt_eff_date')
-wdw_inhouse = (W.partitionBy('atpt_acct', 'b_wdraw_month', 'b_wdraw_is_inhouse')
-    .orderBy('atpt_mt_eff_date'))
+spk_types = {
+    'str': T.StringType, 'datetime': T.TimestampType, 'dbl': T.DecimalType}
+  
+sap_resp_cols = {
+    #'fee_account_id'      : 'str',
+    #'fee_txn_ref_number'  : 'str',   
+    #'feemass_status'      : 'str'
+    'fee_type_code'        : 'str',       
+    'fee_posting_date'     : 'datetime', 
+    'fee_value_date'       : 'datetime',
+    'fee_amount'           : 'dbl',
+    'fee_currency'         : 'str',  
+    'fee_payment_note'     : 'str',  
+    'feemass_external_id'  : 'str',  
+    'feemass_process_date' : 'datetime'}
 
+
+w_txn_ref = (W.partitionBy('atpt_mt_ref_nbr')
+    .orderBy(F.col('atpt_mt_eff_date').desc()))
+w_month_acct = (W.partitionBy('atpt_acct', 'b_wdraw_month')
+    .orderBy(F.col('atpt_mt_eff_date').desc()))
+w_inhouse    = (W.partitionBy('atpt_acct', 'b_wdraw_month', 'b_wdraw_is_inhouse')
+    .orderBy(F.col('atpt_mt_eff_date').desc()))
+
+purchase_to_savings = (lambda a_col: 
+    F.concat_ws('-', F.substring(a_col, 1, 11), F.substring(a_col, 12, 3), F.lit('MX')))
+        
+wdraw_status = (F.when(~F.col('b_wdraw_is_commissionable'), -1)
+                 .when(F.col('atpt_mt_posting_date').isNull(), -2)
+                 .otherwise(0))
+
+# Core Banking es SAP. 
 wdraw_withcols = OrderedDict({
-    'b_account_num'         : F.col('atpt_acct'), 
-    'b_wdraw_month'         : F.date_trunc('month', F.col('atpt_mt_eff_date')).cast(T.DateType()), 
-    'b_wdraw_acquirer_code' : F.substring(F.col('atpt_mt_interchg_ref'), 2, 6), 
-    'b_wdraw_is_inhouse'    : F.col('b_wdraw_acquirer_code') == 11072,
-    'b_wdraw_rk_overall'    : F.row_number().over(wdw_account), 
-    'b_wdraw_rk_inhouse'    : F.when(F.col('b_wdraw_is_inhouse'), F.row_number().over(wdw_inhouse)).otherwise(-1), 
+    'b_core_acct'        : purchase_to_savings('atpt_mt_purchase_order_nbr'), 
+    'b_wdraw_acq_code'   : F.substring(F.col('atpt_mt_interchg_ref'), 2, 6), 
+    'b_wdraw_is_inhouse' : F.col('b_wdraw_acq_code') == 11072,
+    'b_wdraw_month'      : F.date_trunc('month', F.col('atpt_mt_eff_date')).cast(T.DateType()), 
+    'b_wdraw_rk_txns'    : F.row_number().over(w_txn_ref), 
+    'b_wdraw_rk_acct'    : F.row_number().over(w_month_acct), 
+    'b_wdraw_rk_inhouse' : F.when(F.col('b_wdraw_is_inhouse'), 
+                                  F.row_number().over(w_inhouse)).otherwise(-1), 
     'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') | (F.col('b_wdraw_rk_inhouse') > 3),  
-    'b_wdraw_commission_status': F.when(~F.col('b_wdraw_is_commissionable'), -1)
-                .when(F.col('atpt_mt_posting_date').isNull(), -2).otherwise(0)})
+    'b_wdraw_commission_status': wdraw_status, 
+    })
 
-wdraw_cols = ['atpt_mt_eff_date', 'atpt_mt_category_code', 'atpt_acct', 
-    'atpt_mt_card_nbr', 'atpt_mt_desc', 'atpt_mt_amount', 
-    'atpt_mt_posting_date', 'atpt_mt_interchg_ref', 'atpt_mt_ref_nbr'
+wdraw_withcols.update({kk: F.lit(None).cast(spk_types[vv]()) 
+    for kk, vv in sap_resp_cols.items()})
+
+wdraw_allcols = ['atpt_acct', 'atpt_mt_eff_date', 'atpt_mt_category_code',  
+    'atpt_mt_card_nbr', 'atpt_mt_desc', 'atpt_mt_amount', 'atpt_mt_purchase_order_nbr', 
+    'atpt_mt_posting_date', 'atpt_mt_ref_nbr', 'atpt_mt_interchg_ref'
     ] + list(wdraw_withcols.keys())
 
 wdraw_txns_0 = (spark.read.format('delta')
     .load(atptx_loc)
     .filter(F.col('atpt_mt_category_code').isin([6010, 6011])))
 
-# This is potentially a big Set. 
-wdraw_txns = (spk_withcolumns(wdraw_txns_0, wdraw_withcols)
-    .select(wdraw_cols))
+wdraw_txns = (tools.with_columns(wdraw_txns_0, wdraw_withcols)
+    .select(wdraw_allcols)
+    .filter(F.col('b_wdraw_rk_txns') == 1))
 
 display(wdraw_txns)
 
@@ -208,44 +215,46 @@ display(wdraw_txns)
 
 # COMMAND ----------
 
-# Restablecer la tabla de comisiones en caso de experimentación.  
-
-reset_commissions = True
-if reset_commissions: 
-    dbutils.fs.rm(at_commissions, True)
+# MAGIC %md
+# MAGIC **Nota:** Consideremos obtener las comisiones cobradas de SAP en vez de gestionar nuestra tabla.  
 
 # COMMAND ----------
 
 # Obtener las comisiones cobrables.  
-
-# Date frame to consider commissions:  15 days
-since_date = date.today() - delta(COMSNS_FRAME)
+cdmx_tz    = timezone('America/Mexico_City')
+today_date = dt.now(tz=cdmx_tz).date()
+since_date = today_date - delta(COMSNS_FRAME)
 
 # Since there is nothing to compare against on the first date,  
 # just write it down and check that logic is idempotent. 
-if not DeltaTable.isDeltaTable(spark, at_commissions): 
-    wdraw_txns.write.format('delta').save(at_commissions)
+if not Δ.isDeltaTable(spark, at_withdrawals): 
+    wdraw_txns.write.format('delta').save(at_withdrawals)
 
-miscommissions = (spark.read.format('delta').load(at_commissions)
-    .filter(F.col('b_wdraw_commission_status') == 0)
-    .withColumnRenamed('b_wdraw_commission_status', 'status_store'))  # {not-applied, not(-previously)-posted}
+miscommissions = (spark.read
+    .load(at_withdrawals)
+    .filter(F.col('b_wdraw_is_commissionable') 
+         & (F.col('b_wdraw_commission_status') == 0))  # Por alguna razón se repiten. 
+    .withColumnRenamed('b_wdraw_commission_status', 'status_0'))  
 
+# Se toma primero el nuevo dato. 
+join_on     = ['atpt_mt_interchg_ref', 'atpt_mt_ref_nbr']
+join_diff   = ['status_0', 'status_1']
 join_select = [F.coalesce(wdraw_txns[a_col], miscommissions[a_col]).alias(a_col)
     for a_col in miscommissions.columns 
-    if a_col not in ['atpt_mt_interchg_ref', 'atpt_mt_ref_nbr', 'status_store']]
+    if  a_col not in join_on + join_diff]
 
-pre_commissionable = (wdraw_txns
-    .filter(F.col('b_wdraw_commission_status') == 0)
-    .withColumnRenamed('b_wdraw_commission_status', 'status_base')
-    .join(miscommissions, how='outer', 
-          on=['atpt_mt_interchg_ref', 'atpt_mt_ref_nbr'])
+commissions = (wdraw_txns
+    .filter(F.col('b_wdraw_is_commissionable') 
+         & (F.col('b_wdraw_commission_status') == 0)
+         & (F.col('b_wdraw_rk_txns') == 1))
+    .withColumnRenamed('b_wdraw_commission_status', 'status_1')              
+    .join(miscommissions, how='outer', on=join_on)
     .filter(wdraw_txns['atpt_mt_posting_date'] >= since_date)
-    .select(*join_select, 'status_store', 'status_base'))
-   
-commissionable = (pre_commissionable
-    .join(dambs_ref, on='b_account_num', how='left'))
+    .select(*(join_on + join_diff + join_select)))
     
-cmsns_summary = pre_commissionable.select(['status_store', 'status_base']).summary('count')
+cmsns_summary = (commissions
+    .select(['status_0', 'status_1'])
+    .summary('count'))
 cmsns_summary.show()
 
 # COMMAND ----------
@@ -256,68 +265,47 @@ cmsns_summary.show()
 
 # COMMAND ----------
 
+from importlib import reload
+import config; reload(config)
+from src import core_models; reload(core_models)
+from src import core_banking; reload(core_banking)
+from src import tools; reload(tools)
+
+from src.core_banking import SAPSession
+
 core_starter = app_environ.prepare_coresession('qas-sap')
 core_session = SAPSession(core_starter)
 
+# COMMAND ----------
+
+responses = core_session.process_commissions_atpt(spark, 
+    commissions, 'atm', **{'how-many': 50})
 
 # COMMAND ----------
 
-persons = core_session.call_person_set({'how_many':50})
-pd_print(persons)
-
-# COMMAND ----------
-
-responses = core_session.call_txns_commissions(commissionable, 'atm', **{'how-many': 20})
 
 
 # COMMAND ----------
 
-# Debugging
-self, accounts_df, cmsn_key, kwargs = core_session, commissionable, 'atm', {'how-many': 5}
-
-from datetime import date
-from itertools import groupby
-from math import ceil
-from pandas.core import frame
-from pyspark.sql import dataframe as spk_df
-from pytz import timezone
-from src.core_models import Fee, FeeSet
-
-API_LIMIT = 200
-cmsn_id, cmsn_name = self.commission_labels[cmsn_key]
-
-by_k = kwargs.get('how-many', API_LIMIT)
-date_str = date.today().strftime('%Y-%m-%d')
-
-if isinstance(accounts_df, frame.DataFrame):
-    row_itr = accounts_df.iterrows()
-    len_df = len(accounts_df)
-
-elif isinstance(accounts_df, spk_df.DataFrame): 
-    row_itr = enumerate(accounts_df.rdd.toLocalIterator())
-    len_df = accounts_df.count()
-
-iter_key = lambda ii_row: ii_row[0]//by_k
-n_grps = ceil(len_df/by_k)
-
-responses = []
-for kk, sub_itr in groupby(row_itr, iter_key): 
-    
-    print(f'Calling group {kk} of {n_grps}.')
-    fees_set   = [Fee(**{
-        'AccountID'  : row['atpt_acct'], 
-        'TypeCode'   : cmsn_id, 
-        'PostingDate': date_str}) for _, row in sub_itr]
-    feeset_obj = FeeSet(**{
-        'ProcessDate': date_str, 
-        'ExternalID' : cmsn_name, 
-        'FeeDetail'  : fees_set})
-    posters = {
-        'url' : f"{self.base_url}/{self.api_calls['fees-apply']}", 
-        'data': feeset_obj.json(exclude_unset=True)}
-    the_resp = self.post(**posters)
+# MAGIC %md  
+# MAGIC ## 4. Refresh Commission Status
+# MAGIC - Las respuestas (API) pueden o no ser cobradas en el momento.  
+# MAGIC - En su momento -de hecho- 
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## 4. Log table
+# MAGIC %md 
+# MAGIC # Pruebas 
+# MAGIC 
+# MAGIC Pruebas nivel medio técnico.  
+# MAGIC 1.  Los retiros que se hicieron 'funcionalmente' aparecen en el archivo ATPT.  
+# MAGIC 2.  Los retiros que aparecen en ATPT, se clasificaron como `comisionables`/`no-comisionables`.  
+# MAGIC 3.  Los retiros `comisionables` se les aplicó una comisión, y se ve reflejada en el núcleo bancario SAP. 
+# MAGIC 4.  Se actualizó el estatus de la comisión, como cobrada en las tablas del Δ-lake. 
+# MAGIC 
+# MAGIC 
+# MAGIC Pruebas funcionales.  
+# MAGIC 1.  Sr. A. recibió una notificación después de hacer un retiro del cajero.    
+# MAGIC     a) La notificación decía lo que tiene que decir.   
+# MAGIC     b) (La notificación llegó a una hora apropiada, y no a las 12AM cuando se procesó por el sistema)  
+# MAGIC     c) **Caso extremo**, Si L.A. hizo muchas retiros en un día, recibió una sóla notificación con información de las 3 txns.  

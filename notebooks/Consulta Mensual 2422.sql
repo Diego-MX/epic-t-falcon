@@ -1,4 +1,15 @@
 -- Databricks notebook source
+-- MAGIC %python
+-- MAGIC import datetime
+-- MAGIC import pytz
+-- MAGIC from pyspark.sql.functions import *
+-- MAGIC 
+-- MAGIC currentdate = datetime.datetime.now(pytz.timezone('America/Mexico_City')).strftime("%Y%m")
+-- MAGIC outputPath = "/dbfs/mnt/lakehylia-silver/ops/regulatory/card-management/transformation-layer/FT_R2422_"+currentdate+"01.csv"
+-- MAGIC outputPath
+
+-- COMMAND ----------
+
 CREATE WIDGET TEXT pathR2422 DEFAULT "/mnt/lakehylia-silver/ops/regulatory/card-management/transformation-layer/r2422";
 CREATE WIDGET TEXT pathCsv DEFAULT "/dbfs/mnt/lakehylia-silver/ops/regulatory/card-management/transformation-layer/FT_R2422.csv";
 
@@ -68,6 +79,16 @@ SELECT * FROM silver.r2422
 -- COMMAND ----------
 
 -- MAGIC %python
--- MAGIC pathFile = dbutils.widgets.get("pathCsv")
+-- MAGIC pathFile = outputPath
 -- MAGIC pd = df.toPandas()
 -- MAGIC pd.to_csv(pathFile, header=True, index=False)
+
+-- COMMAND ----------
+
+-- MAGIC %python
+-- MAGIC dbutils.fs.ls("/mnt/lakehylia-silver/ops/regulatory/card-management/transformation-layer/")
+
+-- COMMAND ----------
+
+-- MAGIC %python
+-- MAGIC dbutils.widgets.removeAll()

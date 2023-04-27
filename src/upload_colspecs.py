@@ -3,15 +3,8 @@ import pandas as pd
 from epic_py.utilities import read_excel_table
 
 
-def print_df(a_df, width=180): 
-    options = ['display.max_rows', None, 
-               'display.max_columns', None, 
-               'display.width', width]
-    with pd.option_context(*options):
-        print(a_df)
 
-
-def fiserv_data(a_df): 
+def fiserv_data(a_df: pd.DataFrame): 
     # Field Name, Format, Technical Mapping
     mod_cols = {
         'Field Name': lambda df: df['Field Name'].str.strip(), 
@@ -42,28 +35,47 @@ def fiserv_data(a_df):
     
 
 
-specs_file = "refs/catalogs/Data Extracts.xlsx.lnk"
+if __name__ == '__main__': 
 
-sheets_tables = [('DATPTX01', 'atpt'),  # , ('DAMNAC01', 'damnac')      
-    ('DAMBS101', 'dambs'), ('DAMBS201', 'dambs2'), ('DAMBSC01', 'dambsc'),
-    ('DAMNA001', 'damna')] 
-table_types = ['detail', 'header', 'trailer']
-
-
-
-the_cols = ['name', 'From', 'Length', 'Format', 'Field Name', 'Technical Mapping', 
-        'fmt_type', 'fmt_len', 'aux_date', 'aux_sign', 'aux_fill']
-
-a_sht, a_tbl, suffix = 'DAMBS101', 'dambs', 'detail'
-
-for a_sht, a_tbl in sheets_tables: 
-    for suffix in table_types: 
-        print(f"### Saving table: {a_sht}_{suffix}:")
-
-        pre_table = read_excel_table(specs_file, a_sht, f"{a_tbl}_{suffix}")
-        mid_table = fiserv_data(pre_table)
-        chk_sums  = len(mid_table) - mid_table.loc[:, mid_table.columns.str.startswith('chk')].sum()
-        print(str(chk_sums))
-        table_columns = mid_table.loc[:, the_cols]
-        table_columns.to_feather(f"refs/catalogs/{a_tbl}_{suffix}.feather") 
+    from config import (ConfigEnviron, 
+        ENV, SERVER, DATALAKE_PATHS as paths)
+    from datetime import datetime as dt
+    from pathlib import Path
+    app_environ = ConfigEnviron(ENV, SERVER)
     
+    specs_brz = Path(paths['from-cms'])/"layouts"
+
+    specs_file = "refs/layouts/Data Extracts.xlsx.lnk"
+
+    sheets_tables = [
+        ('DATPTX01', 'atpt'),  # , ('DAMNAC01', 'damnac')      
+        ('DAMBS101', 'dambs'), 
+        ('DAMBS201', 'dambs2'), 
+        ('DAMBSC01', 'dambsc'),
+        ('DAMNA001', 'damna')] 
+
+    table_types = ['detail', 'header', 'trailer']
+
+    the_cols = ['name', 'From', 'Length', 'Format', 'Field Name', 'Technical Mapping', 
+            'fmt_type', 'fmt_len', 'aux_date', 'aux_sign', 'aux_fill']
+
+    now_str = dt.now().strftime("%Y-%m-%d_%H:%M")
+    
+    for a_sht, a_tbl in sheets_tables: 
+        for suffix in table_types: 
+
+            file_name = f"refs/layouts/cms/{a_tbl}_{suffix}.feather"
+            b_name1 =  f"{specs_brz}/{a_tbl}_{suffix}_latest.feather"
+            b_name2 = f"{specs_brz}/{a_tbl}_{suffix}_{now_str}.feather"
+
+            pre_table = read_excel_table(specs_file, a_sht, f"{a_tbl}_{suffix}")
+            mid_table = fiserv_data(pre_table)
+            chk_sums  = len(mid_table) - mid_table.loc[:, mid_table.columns.str.startswith('chk')].sum()
+
+            print(str(chk_sums))
+            
+            table_columns = mid_table.loc[:, the_cols]
+
+            table_columns.to_feather(file_name) 
+            app_environ.upload_storage_blob(file_name, b_name1, 'bronze', overwrite=True)
+            app_environ.upload_storage_blob(file_name, b_name2, 'bronze', overwrite=True)
