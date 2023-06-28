@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from epic_py.utilities import read_excel_table
+from epic_py.tools import read_excel_table
 
 
 def fiserv_data(a_df: pd.DataFrame) -> pd.DataFrame: 
@@ -44,7 +44,8 @@ def print_df(a_df, width=180):
 
 if __name__ == '__main__': 
 
-    from config import ConfigEnviron, ENV, SERVER, DATALAKE_PATHS as paths
+    from config import (ConfigEnviron, 
+        ENV, SERVER, DATALAKE_PATHS as paths)
     from datetime import datetime as dt
     from pathlib import Path
     app_environ = ConfigEnviron(ENV, SERVER)

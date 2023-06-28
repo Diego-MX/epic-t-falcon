@@ -1,76 +1,27 @@
-import base64
-from datetime import datetime as dt
-from operator import attrgetter
-import pandas as pd
-from pandas.core import series
-from pandas.core.frame import DataFrame as pd_DF
-from pyspark.sql.dataframe import DataFrame as spk_DF
-from os import path
-import re
+from delta.tables import DeltaTable as Δ
+from pandas import DataFrame as pd_DF
+from pyspark.sql import functions as F, Column
 from typing import Union
 
-try: 
-    from pyspark.dbutils import DBUtils
-except ImportError: 
-    DBUtils = None
+from epic_py.tools import (str_plus, pd_print, file_exists, dirfiles_df)
+    #dict_plus, MatchCase, partial2, as_callable,
+   
+from epic_py.delta import path_type
+    # dbks_path, when_plus,)
+                           
+
+# encode64 = lambda a_str: str_plus(a_str).encode64()
+  
+# dict_minus = lambda a_dict, keys: dict_plus(a_dict).difference(keys)
 
 
-encode64 = (lambda a_str: 
-    base64.b64encode(a_str.encode('ascii')).decode('ascii'))
-
-
-def dict_minus(a_dict, key_ls, copy=True): 
-    b_dict = a_dict.copy() if copy else a_dict
-    for key in key_ls: 
-        b_dict.pop(key, None)
-    return b_dict
-
-
-def pd_print(a_df: pd_DF, width=180): 
-    options = ['display.max_rows',    None, 
-               'display.max_columns', None, 
-               'display.width',       width]
-    with pd.option_context(*options):
-        print(a_df)
-        
-
-def dirfiles_df(a_dir, spark=None) -> pd_DF:
-    if spark is None: 
-        raise Exception('Must provide Spark Session.')
-        
-    dbutils = DBUtils(spark)
-    file_attrs = ['modificationTime', 'name', 'path', 'size']
-    get_file_attrs = attrgetter(*file_attrs)
+def snake_2_camel(snake, first_too=True, pre_sub={}, post_sub={}):
+    camel = (str_plus(snake)
+        .sub_plus(pre_sub)
+        .to_camel('_', first_too)
+        .sub_plus(post_sub))
+    return camel
     
-    files_ls = [get_file_attrs(filish) for filish in dbutils.fs.ls(a_dir)]
-    files_df = (pd.DataFrame(files_ls, columns=file_attrs)
-        .assign(**{'modificationTime': lambda df: 
-                pd.to_datetime(df['modificationTime'], unit='ms')}))
-    return files_df
-
-
-def file_exists(a_path: str): 
-    if a_path.startswith('/dbfs'):
-         return path.exists(a_path)
-    else:
-        try:
-            dbutils.fs.ls(a_path)
-            return True
-        except Exception as e:
-            if 'java.io.FileNotFoundException' in str(e):
-                return False
-        else:
-            raise Exception("Can't find file {a_path}.")
-
-
-
-def pd_print(a_df: pd_DF, width=180): 
-    options = ['display.max_rows', None, 
-               'display.max_columns', None, 
-               'display.width', width]
-    with pd.option_context(*options):
-        print(a_df)
-
         
 def len_cols(cols_df: pd_DF) -> int: 
     # Ya ni me acuerdo para que sirve. 
@@ -85,3 +36,50 @@ def len_cols(cols_df: pd_DF) -> int:
     return int(the_len)
     
     
+def upsert_delta(spark, new_tbl, base_path, 
+        how, on_cols:Union[list, dict]): 
+    if how == 'simple': 
+        if not isinstance(on_cols, list): 
+            raise Exception("ON_COLS must be of type LIST.")
+        on_str = " AND ".join(f"(t1.{col} = t0.{col})" for col in on_cols)
+        
+        (Δ.forPath(spark, base_path).alias('t0')
+            .merge(new_tbl.alias('t1'), on_str)
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute())
+        
+    elif how == 'delete': 
+        if not isinstance(on_cols, dict): 
+            raise Exception("ON_COLS must be of type DICT.")
+        ids_cc, cmp_cc = map(on_cols.get, ['ids', 'cmp'])
+
+        s_delete = (spark.read
+            .load(base_path)
+            .join(new_tbl, how='leftsemi', on=ids_cc)
+            .join(new_tbl, how='leftanti', on=ids_cc + cmp_cc)
+            .withColumn('to_delete', F.lit(True)))
+
+        t_merge = (new_tbl
+            .withColumn('to_delete', F.lit(False))
+            .unionByName(s_delete))
+
+        mrg_condtn = ' AND '.join(f"(t1.{cc} = t0.{cc})" for cc in ids_cc+cmp_cc) 
+        new_values = {cc: F.col(f"t1.{cc}") for cc in new_tbl.columns}
+        
+        (Δ.forPath(spark, base_path).alias('t0')
+            .merge(t_merge.alias('t1'), mrg_condtn)
+            .whenMatchedDelete('to_delete')
+            .whenMatchedUpdate(set=new_values)
+            .whenNotMatchedInsert(values=new_values)
+            .execute())
+    return 
+
+
+def get_date(a_col: Union[str, Column]) -> Column: 
+    date_reg = r'20[\d\-]{8}'
+    date_col = F.to_date(F.regexp_extract(a_col, date_reg, 0), 'yyyy-mm-dd')
+    return date_col
+
+
+   

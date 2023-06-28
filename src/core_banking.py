@@ -2,9 +2,7 @@
 # CDMX, 4 de noviembre de 2021
 
 from datetime import datetime as dt, timedelta as delta, date
-from delta.tables import DeltaTable as Δ
-from httpx import (Client, AsyncClient, 
-    Auth as AuthX, post as postx, BasicAuth as BasicX)
+from httpx import (Client, Auth as AuthX, post as postx, BasicAuth as BasicX)
 from itertools import groupby
 from json import dumps, loads
 from math import ceil
@@ -150,7 +148,7 @@ class SAPSession(Client):
                     'url' : f"{self.api_calls['fees-apply']}", 
                     'data': feeset_obj.json()}
             the_resp = self.post(**posters)
-            responses.append(the_resp)     
+            responses.append(the_resp) 
         return responses
     
     

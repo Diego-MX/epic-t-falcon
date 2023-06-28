@@ -1,21 +1,12 @@
-from os import environ, getenv, remove
-import re
-
-from azure.identity import ClientSecretCredential
-from azure.identity._credentials.default import DefaultAzureCredential
+from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from azure.storage.blob import BlobServiceClient
+from dotenv import load_dotenv
+from os import environ, getenv, remove
 from pathlib import Path
-try: 
-    from pyspark.dbutils import DBUtils
-except ImportError: 
-    DBUtils = None
-try:
-    from dotenv import load_dotenv
-    load_dotenv('.env', override=True)
-except ImportError: 
-    load_dotenv = None
+import re
 
+load_dotenv('.env', override=True)
 
 ENV = environ.get('ENV_TYPE')
 SERVER = environ.get('SERVER_TYPE')
@@ -100,18 +91,19 @@ DATALAKE_PATHS = {
     'from-cms'     : "ops/regulatory/card-management/transformation-layer",  # 
     'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready",  # Extraer y descomprimir
     'reports'      : "ops/regulatory/transformation-layer",  # R2422, SISPAGOS,
-    'reports2'     : "ops/regulatory/conciliations",         #
+    'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.  
     'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
-    'commissions'  : "ops/account-management/commissions",   # comisiones de cajeros
+    #'withdrawals'  : "ops/account-management/withdrawals",   # todos los retiros
+    'commissions'  : "ops/account-management/commissions",   # retiros de cajeros
     'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI. 
 }
 
 DELTA_TABLES = {
-    'DAMNA' : ('damna',  'damna' , 'din_clients.slv_ops_cms_damna_stm'), 
-    'ATPTX' : ('atpt',   'atpt'  , 'farore_transactions.slv_ops_cms_atptx_stm'), 
-    'DAMBS1': ('dambs',  'dambs' , 'nayru_accounts.slv_ops_cms_dambs_stm'), 
-    'DAMBS2': ('dambs2', 'dambs2', 'nayru_accounts.slv_ops_cms_dambs2_stm'), 
-    'DAMBSC': ('dambsc', 'dambsc', 'nayru_accounts.slv_ops_cms_dambsc_stm')}
+    'damna' : 'din_clients.slv_ops_cms_damna_stm', 
+    'atpt'  : 'farore_transactions.slv_ops_cms_atptx_stm', 
+    'DAMBS1': 'nayru_accounts.slv_ops_cms_dambs_stm', 
+    'DAMBS2': 'nayru_accounts.slv_ops_cms_dambs2_stm', 
+    'DAMBSC': 'nayru_accounts.slv_ops_cms_dambsc_stm'}
 
 
 
@@ -211,6 +203,7 @@ class ConfigEnviron():
         elif self.server == 'dbks': 
             if self.spark is None: 
                 raise("Please provide a spark context on ConfigEnviron init.")
+            from pyspark.dbutils import DBUtils
             dbutils = DBUtils(self.spark)
             get_secret = (lambda key: 
                 dbutils.secrets.get(scope=self.config['scope'], key=re.sub('_', '-', key.lower())))
@@ -236,44 +229,45 @@ class ConfigEnviron():
         self.credential = the_creds
         
 
-    def get_blob_service(self, account=None):
-        if not hasattr(self, 'blob_services'):
+    def get_blob_service(self, account=None): 
+        if not hasattr(self, 'blob_services'): 
             self.blob_services = {}
-    
+        
         if account is None: 
             account = self.config['storage']
-
-        if account not in self.blob_services: 
-            if not hasattr(self, 'credential'): 
-                self.set_credential()
-
-            the_url = f"https://{account}.blob.core.windows.net/"
-            b_service = BlobServiceClient(the_url, credential=self.credential)
-            self.blob_services[account] = b_service
         
-        return self.blob_services[account]
+        if not hasattr(self, 'credential'): 
+            self.set_credential()
 
-
+        the_url = f"https://{account}.blob.core.windows.net/"
+        b_service = BlobServiceClient(the_url, credential=self.credential)
+        self.blob_services[account] = b_service
+        return b_service
+        
+        
     def upload_storage_blob(self, a_file, blob, container, account=None, overwrite=False):
         b_service = self.get_blob_service(account)
 
-        the_blob = b_service.get_blob_client(container, blob)
+        the_blob = b_service.get_blob_service(container, blob)
         with open(a_file, 'rb') as _b: 
             the_blob.upload_blob(_b, overwrite=overwrite)
     
     
 
-    def download_storage_blob(self, a_file, blob, container, account=None): 
-        if Path(a_file): 
+    def download_storage_blob(self, a_file, a_blob, container, account=None, force=False): 
+        if force and Path(a_file).is_file(): 
             remove(a_file)
         
+        if Path(a_file).is_file(): 
+            return 
+            
         b_service = self.get_blob_service(account)
-        the_blob = b_service.get_blob_client(container, blob)
+        the_blob = b_service.get_blob_client(container, a_blob)
         with open(a_file, 'wb') as _b: 
             b_data = the_blob.download_blob()
-            b_data.readinto(_b)
+            _b.write(b_data.readall())
 
-
+        
     def sparktransfer_credential(self): 
         if not hasattr(self, 'call_dict'): 
             self.set_secretters()

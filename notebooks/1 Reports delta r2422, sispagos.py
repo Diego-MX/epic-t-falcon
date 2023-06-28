@@ -25,21 +25,18 @@ reload(config)
 
 # COMMAND ----------
 
+from azure.storage.blob import ContainerClient
 from datetime import datetime as dt, date, timedelta as delta 
 from dateutil.relativedelta import relativedelta as r_delta
-import io
 from math import ceil
-import pandas as pd
 from pyspark.sql import functions as F, types as T
 import re
-from typing import Union
 
-from azure.identity import ClientSecretCredential
-from azure.storage.blob import ContainerClient
 
 from src.utilities import write_datalake
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
+
 
 app_environ = ConfigEnviron(ENV, SERVER, spark)
 app_environ.set_credential()
@@ -90,16 +87,6 @@ def past_whole_period(a_dt: date, period='month', to_return='date'):
             else floor_date(the_date, 'period'))
     return the_return
 
-def file_exists(a_path): 
-    if a_path[:5] == "/dbfs":
-    # In  Databricks
-        return os.path.exists(path)
-    # Out Databricks
-    try:
-        dbutils.fs.ls(path)
-        return True
-    except: 
-        return False
 
 
 
@@ -177,7 +164,7 @@ r_2422 = (accounts
     .withColumnRenamed('2', 'CONTRACT_ACTIVE_DEBIT_CARD_FEMALE')
     .select(*select_cols))
 
-display(r_2422)
+r_2422.display()
 
 # COMMAND ----------
 
@@ -220,7 +207,7 @@ sispagos = (spark.read
     .withColumn('Tipo_Persona', F.lit(''))
     .select(*select_cols))
 
-display(sispagos)
+sispagos.display()
 
 # COMMAND ----------
 

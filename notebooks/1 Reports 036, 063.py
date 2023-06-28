@@ -46,8 +46,17 @@ import re
 # COMMAND ----------
 
 now_mx = dt.now(timezone('America/Mexico_City'))
-days_back = 3 if (now_mx == 0) else 1
+days_back = 3 if (now_mx.weekday == 0) else 1
 yday_ish = now_mx.date() - delta(days=days_back)
+yday_ish = date(2023, 3, 6)
+
+# ya se hizo un puto desmadre cuando empezaron a cambiar fechas, y áreas bancarias.  
+which_files = {
+    'cloud-banking' : {'date': yday_ish, 'key' : 'CCB15'}, 
+    'subledger'     : {'date': yday_ish, 'key' : 'FZE03'}, 
+    'spei-banking'  : {'date': yday_ish, 'key2': 'CB15' }, 
+    'spei-ledger'   : {'date': yday_ish+delta(1), 'key': '900002'}}
+
 
 key_date_ops  = yday_ish
 key_date_spei = yday_ish
@@ -65,9 +74,9 @@ key_date_spei = yday_ish
 
 # COMMAND ----------
 
-from src.utilities import dirfiles_df, write_datalake, pd_print, file_exists
-from src.schema_tools import with_columns
-from src.sftp_sources import process_files, get_match_path
+from src.utilities import dirfiles_df, pd_print, file_exists
+from src.tools import with_columns, write_datalake
+from src.sftp_sources import process_files
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, CORE_ENV, 
     DATALAKE_PATHS as paths, 
@@ -86,6 +95,13 @@ at_spei_banking  = f"{brz_base}/{paths['spei-c4b']}"
 at_spei_ledger   = f"{brz_base}/{paths['spei-gfb']}"
 at_reports       = f"{gld_base}/{paths['reports2']}"
 
+
+# COMMAND ----------
+
+print(f"""
+Conciliación: {at_conciliations}
+SPEI-C4B:     {at_spei_banking}
+SPEI-GFB:     {at_spei_ledger}""")
 
 # COMMAND ----------
 
@@ -163,7 +179,7 @@ ops_c4b = {
         'PAYMENTTRANSACTIONORDERITEMID': 'str', 'REFADJUSTMENTTRANSACTIONID': 'str', 
         'CANCELLATIONDOCUMENTINDICATOR': 'str', 'CANCELLEDENTRYREFERENCE': 'str',
         'CANCELLATIONENTRYREFERENCE': 'str', 'PAYMENTNOTES': 'str', 
-        'CREATIONDATETIME': 'datetime', 'CHANGEDATETIME': 'datetime', 'RELEASEDATETIME': 'datetime',
+        'CREATIONDATETIME': 'ts', 'CHANGEDATETIME': 'ts', 'RELEASEDATETIME': 'ts',
         'CHANGEUSER': 'str', 'RELEASEUSER': 'str', 'COUNTER': 'int'}), 
     'mod': {
         'txn_valid'   : F.lit(True),  # Filtrar
@@ -217,7 +233,7 @@ spei_gfb = {
 spei_c4b = {
     'base': OrderedDict({
         'account_c4b': 'str', 'txn_type_code': 'str', 
-        'txn_type': 'str', 'txn_postdate': 'datetime', 
+        'txn_type': 'str', 'txn_postdate': 'ts', 
         'AMOUNT_LOCAL': 'str', 'AMOUNT_CENTS': 'str',  
         # Vienen en formato europeo así que lo separamos y ajustamos. 
         'currency': 'str', 'txn_id': 'str', 
@@ -225,7 +241,7 @@ spei_c4b = {
         'pymt_type': 'str', 'pymt_type_code': 'str', 'comm_channel_code': 'str', 
         'comm_channel': 'str', 'acct_projection': 'str', 'product_id': 'str', 
         'holder_id': 'long', 'debit_indicator': 'str', 
-        'value_date': 'datetime', 'creation_user': 'long', 'release_user': 'long', 
+        'value_date': 'ts', 'creation_user': 'long', 'release_user': 'long', 
         'counter_holder': 'str', 'counter_bank_id': 'int', 'counter_account_id': 'long', 
         'counter_account': 'int', 'counter_bank_country': 'str', 'pymt_order_id': 'str', 
         'pymt_item_id': 'str', 'ref_adjust_txn_id': 'str', 
@@ -318,9 +334,9 @@ tsv_options = {
 }
 
 schema_types = {
-    'int' : T.IntegerType, 'long': T.LongType,   'datetime': T.TimestampType, 
-    'str' : T.StringType,  'dbl' : T.DoubleType, 'date'    : T.DateType, 
-    'bool': T.BooleanType, 'flt' : T.FloatType,  'null'    : T.NullType}
+    'int' : T.IntegerType, 'long': T.LongType,   'ts'   : T.TimestampType, 
+    'str' : T.StringType,  'dbl' : T.DoubleType, 'date' : T.DateType, 
+    'bool': T.BooleanType, 'flt' : T.FloatType,  'null' : T.NullType}
 
 schemas = {
     'subledger'     : T.StructType([
@@ -332,9 +348,9 @@ schemas = {
     'spei-ledger'   : T.StructType([
             T.StructField(kk, schema_types[vv](), True) 
             for kk, vv in base_cols['spei-ledger'].items()]), 
-    'spei-banking'  : T.StructType([
+    'spei-banking'  : T.StructType(
             T.StructField(kk, schema_types[vv](), True) 
-            for kk, vv in base_cols['spei-banking'].items()]), 
+            for kk, vv in base_cols['spei-banking'].items()), 
 }
 
 renamers = {
@@ -347,68 +363,6 @@ renamers = {
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC 
-# MAGIC Incluimos los queries de referencia. 
-# MAGIC + **Operativo**
-# MAGIC ```sql
-# MAGIC   SELECT
-# MAGIC     date_format(to_date(DateAdded, 'dd/MM/yyyy'), 'dd/MM/yyyy') AS Fecha,   
-# MAGIC     COUNT(BankAccountID) AS Numero_de_registros_en_C4B,
-# MAGIC     ROUND(SUM(AmountBankAccountCurrency), 2) AS Monto_de_registros_en_C4B,
-# MAGIC     COUNT(MainAccount) AS Numero_de_registros_en_Banorte,
-# MAGIC     ROUND(SUM(TransactionAmount), 2) AS Monto_de_registros_en_Banorte,
-# MAGIC     ABS(COUNT(BankAccountID) - COUNT(MainAccount)) AS Numero_de_registros_de_la_diferencia_detectada_entre_CB4_y_Banorte,
-# MAGIC     ABS(SUM(AmountBankAccountCurrency) - SUM(TransactionAmount)) AS Monto_de_los_registros_de_la_diferencia_detectada_entre_CB4_y_Banorte,
-# MAGIC     TransactionStatus
-# MAGIC   FROM bronze.banorte_spei
-# MAGIC   FULL JOIN bronze.c4b_spei 
-# MAGIC     ON bronze.banorte_spei.TrackingKey = bronze.c4b_spei.End2EndID
-# MAGIC     AND bronze.banorte_spei.Reference = bronze.c4b_spei.ReferenceNumber
-# MAGIC     AND bronze.banorte_spei.MainAccount = bronze.c4b_spei.BankAccountID
-# MAGIC     AND CASE
-# MAGIC         WHEN bronze.banorte_spei.ReceptionService = 'EMISION SPEI' THEN '500402'
-# MAGIC         WHEN bronze.banorte_spei.ReceptionService = 'SPEI RECIBIDO' THEN '550403'
-# MAGIC         END = bronze.c4b_spei.TransactionTypeCode
-# MAGIC     --AND bronze.banorte_spei.DateAdded = bronze.c4b_spei.ValueDate
-# MAGIC   WHERE
-# MAGIC     DateAdded = '03/01/2022'
-# MAGIC   GROUP BY
-# MAGIC     Fecha,
-# MAGIC     TransactionStatus
-# MAGIC ```  
-# MAGIC   
-# MAGIC   
-# MAGIC + **De SPEI**
-# MAGIC ```sql
-# MAGIC   SELECT
-# MAGIC     date_format(to_date(DateAdded, 'dd/MM/yyyy'), 'dd/MM/yyyy') AS Fecha,   
-# MAGIC     COUNT(BankAccountID) AS Numero_de_registros_en_C4B,
-# MAGIC     ROUND(SUM(AmountBankAccountCurrency), 2) AS Monto_de_registros_en_C4B,
-# MAGIC     COUNT(MainAccount) AS Numero_de_registros_en_Banorte,
-# MAGIC     ROUND(SUM(TransactionAmount), 2) AS Monto_de_registros_en_Banorte,
-# MAGIC     ABS(COUNT(BankAccountID) - COUNT(MainAccount)) AS Numero_de_registros_de_la_diferencia_detectada_entre_CB4_y_Banorte,
-# MAGIC     ABS(SUM(AmountBankAccountCurrency) - SUM(TransactionAmount)) AS Monto_de_los_registros_de_la_diferencia_detectada_entre_CB4_y_Banorte,
-# MAGIC     TransactionStatus
-# MAGIC   FROM bronze.banorte_spei
-# MAGIC   FULL JOIN bronze.c4b_spei 
-# MAGIC     ON bronze.banorte_spei.TrackingKey = bronze.c4b_spei.End2EndID
-# MAGIC     AND bronze.banorte_spei.Reference = bronze.c4b_spei.ReferenceNumber
-# MAGIC     AND bronze.banorte_spei.MainAccount = bronze.c4b_spei.BankAccountID
-# MAGIC     AND CASE
-# MAGIC         WHEN bronze.banorte_spei.ReceptionService = 'EMISION SPEI' THEN '500402'
-# MAGIC         WHEN bronze.banorte_spei.ReceptionService = 'SPEI RECIBIDO' THEN '550403'
-# MAGIC         END = bronze.c4b_spei.TransactionTypeCode
-# MAGIC     --AND bronze.banorte_spei.DateAdded = bronze.c4b_spei.ValueDate
-# MAGIC   WHERE
-# MAGIC     DateAdded = '03/01/2022'
-# MAGIC   GROUP BY
-# MAGIC     Fecha,
-# MAGIC     TransactionStatus
-# MAGIC ```
-
-# COMMAND ----------
-
 # MAGIC %md 
 # MAGIC #### a. Subldedger (FPSL)
 
@@ -417,7 +371,7 @@ renamers = {
 data_src   = 'subledger'
 pre_files  = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
 ldgr_files = process_files(pre_files, data_src)
-ldgr_files.sort_values('date', ascending=False).filter()
+ldgr_files.sort_values(['date'], ascending=False)
 
 # COMMAND ----------
 
@@ -487,7 +441,11 @@ speigfb_files.sort_values('date', ascending=False)
 # MAGIC + Los archivos para conciliación dicen `CONCILIACION`, no `DATALAKE`.  
 # MAGIC + La llave para estos archivos es: `S4B1`.  
 # MAGIC + Cuando se ejecute el SPEI, llegará la llave `C4B2` ... para Akya.  
-# MAGIC + Revisar ruta de archivos:  `CuSn/ops/core-banking/conciliations/spei`.  
+# MAGIC + Revisar ruta de archivos:  `<bronze>/ops/core-banking/conciliations/spei`.  
+
+# COMMAND ----------
+
+pre_files_1.sort_values('name', ascending=False)
 
 # COMMAND ----------
 
@@ -514,11 +472,17 @@ pre_files_0.sort_values('date', ascending=False)
 
 # COMMAND ----------
 
-def read_source_table(src_key, dir_df, date_key, output=None): 
-    src_path = get_match_path(src_key, dir_df, date_key)
-    if src_path is None: 
+def read_source_table(src_key, dir_df, file_keys, output=None): 
+    q_str = ' & '.join(f"({k} == '{v}')" 
+        for k, v in file_keys.items())
+    
+    path_df = dir_df.query(q_str)
+    if path_df.shape[0] != 1: 
+        print(f"File keys match is not unique.")
         return None
     
+    src_path = path_df['path'].iloc[0]        
+
     if output == 0: 
         table_0 = (spark.read.format('text')
             .load(src_path))
@@ -555,7 +519,7 @@ def read_source_table(src_key, dir_df, date_key, output=None):
 
 # Columnas: [txn_valid, num_cuenta, cuenta_fpsl, clave_trxn, moneda, monto_trxn]
 
-ldgr_tbl = read_source_table('subledger', ldgr_files, key_date_ops)
+ldgr_tbl = read_source_table('subledger', ldgr_files, which_files['subledger'])
 
 if ldgr_tbl is not None: 
     ldgr_grp = (ldgr_tbl
@@ -577,7 +541,7 @@ else:
 
 # COMMAND ----------
 
-c4b_tbl = read_source_table('cloud-banking', c4b_files, key_date_ops)
+c4b_tbl = read_source_table('cloud-banking', c4b_files, which_files['cloud-banking'])
 
 if c4b_tbl is not None: 
     c4b_grp = (c4b_tbl
@@ -600,7 +564,7 @@ else:
 
 # COMMAND ----------
 
-speigfb_tbl = read_source_table('spei-ledger', speigfb_files, key_date_spei)
+speigfb_tbl = read_source_table('spei-ledger', speigfb_files, which_files['spei-ledger'])
 
 if speigfb_tbl is not None: 
     speigfb_grp = (speigfb_tbl
@@ -621,7 +585,7 @@ else:
 
 # COMMAND ----------
 
-speic4b_tbl = read_source_table('spei-banking', speic4b_files, key_date_spei)
+speic4b_tbl = read_source_table('spei-banking', speic4b_files, which_files['spei-banking'])
 
 if speic4b_tbl is not None: 
     speic4b_grp = (speic4b_tbl
@@ -654,8 +618,7 @@ if dev:
                  .when((F.col('fpsl_num_txns') == 0) | (F.col('fpsl_num_txns').isNull()), 'fpsl')
                  .otherwise('indeterminada')}}
 
-    def conciliate_tables(a_df, b_df, key): 
-        pass
+    
 
 # COMMAND ----------
 
@@ -700,7 +663,9 @@ try:
             a_path=f"{dir_036}/subledger/{key_date_ops}_036_fpsl.csv")
     write_datalake(c4b_036, spark=spark, overwrite=True,
             a_path=f"{dir_036}/cloud-banking/{key_date_ops}_036_c4b.csv")
-except: 
+    
+except Exception as expt: 
+    print(str(expt))
     base_036 = None
 
 # COMMAND ----------
@@ -764,19 +729,23 @@ except:
 
 # COMMAND ----------
 
-print(f"Dias de reporte (036:{key_date_ops}, 063:{key_date_spei})")
+from json import dumps
+dumps2 = lambda xx: dumps(xx, default=str)
+
+for kk, vv in which_files.items(): 
+    print(f"{kk}\t:{dumps2(vv)}")
 
 if ldgr_grp is None: 
-    print(f"No se encontró FPSL correspondiente a {key_date_ops}.")
+    print(f"No se encontró FPSL correspondiente a {dumps2(which_files['subledger'])}.")
 
 if c4b_grp is None: 
-    print(f"No se encontró C4B correspondiente a {key_date_ops}.")
+    print(f"No se encontró C4B correspondiente a {dumps2(which_files['core-banking'])}.")
 
 if speigfb_grp is None: 
-    print(f"No se encontró SPEI-GFB correspondiente a {key_date_spei}.")
+    print(f"No se encontró SPEI-GFB correspondiente a {dumps2(which_files['spei-ledger'])}.")
 
 if speic4b_grp is None: 
-    print(f"No se encontró SPEI-GFB correspondiente a {key_date_spei}.")
+    print(f"No se encontró SPEI-C4B correspondiente a {dumps2(which_files['spei-banking'])}.")
 
 if base_036 is None: 
     print(f"No se concluyó el reporte 036.")

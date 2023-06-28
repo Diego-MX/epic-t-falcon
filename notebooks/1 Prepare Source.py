@@ -13,17 +13,9 @@
 # MAGIC Para cada archivo, se realiza lo siguiente.  
 # MAGIC 1. Identificar qué tipo de archivo es.  
 # MAGIC 2. Descargar y descomprimir a archivos temporales locales.  
-# MAGIC    Paso necesario -aunque desafortunado-, porque Spark no sabe procesar ZIPs directos del _datalake_. 
+# MAGIC    Paso necesario -aunque **desafortunado**-, porque Spark no sabe procesar ZIPs directos del _datalake_. 
 # MAGIC 3. Parsear de acuerdo a archivo de configuración. 
 # MAGIC 4. Anexar a la tabla Δ correspondiente. 
-# MAGIC 
-# MAGIC Cabe mencionar un par de comentarios sobre la estructura del archivo: 
-# MAGIC - **Introducción**  
-# MAGIC   Descripción de este _notebook_.  
-# MAGIC - **Preparación**  
-# MAGIC   ... pues preparan la ejecución.  
-# MAGIC - **Ejecución**  
-# MAGIC   Donde ocurre la acción.  
 
 # COMMAND ----------
 
@@ -41,14 +33,18 @@
 # COMMAND ----------
 
 from azure.storage.blob import ContainerClient
+from collections import Counter
+from datetime import datetime as dt, date, timedelta as delta
+import numpy as np
+from os import listdir
+import pandas as pd
 from pathlib import Path
 import re
 from zipfile import ZipFile
 
-
 # COMMAND ----------
 
-from src.utilities import dirfiles_df
+from src import utilities as utils 
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 
@@ -62,29 +58,13 @@ pre_write = paths['prepared']
 abfss_brz = paths['abfss'].format('bronze', resources['storage'])
 blob_path = paths['blob' ].format(resources['storage'])
 
+# Las carpetas claves.  Put attention. 
 abfss_read  = f"{abfss_brz}/{paths['from-cms']}"
 abfss_write = f"{abfss_brz}/{paths['prepared']}"
-
-
-def dbks_path(a_path: Path): 
-    a_str = str(a_path)
-    if re.match(r'^(abfss|dbfs|file):', a_str): 
-        b_str = re.sub(':/', '://', a_str)
-    else: 
-        b_str = a_str 
-    return b_str
-    
 
 # COMMAND ----------
 
 #%% About the files in question: 
-
-reg_labels = {
-    'UAT_CLIENTES_DAMNA001': 'DAMNA', 
-    'UAT_CUENTAS_DAMBS101' : 'DAMBS1',  
-    'UAT_CUENTAS_DAMBS201' : 'DAMBS2', 
-    'UAT_CUENTAS_DAMBSC01' : 'DAMBSC', 
-    'UAT_TRXS_ZATPTX01'    : 'ATPTX'}
 
 #%% Local temporary download. 
 to_download = "/dbfs/FileStore/transformation-layer/tmp_download.zip"
@@ -94,96 +74,129 @@ to_unzip    = "/dbfs/FileStore/transformation-layer/tmp_unzipped"
 #%% Working with the datalake. 
 
 blob_container = ContainerClient(blob_path, 'bronze', app_env.credential) 
-dirfiles_df(abfss_read, spark)
+
+read_df = utils.dirfiles_df(abfss_read, spark)
+read_df
+
+# COMMAND ----------
+
+def path_2_blob(abs_path): 
+    rel_path = re.sub(r".*windows\.net/", "", abs_path)
+    return rel_path
 
 # COMMAND ----------
 
 # MAGIC %md 
 # MAGIC # Ejecución
-# MAGIC 
-# MAGIC Se comparan los fólders de lectura y escritura (`.../unzipped-ready/{ATPTX|DAMNA|DAMBS[12C]}`) para identificar archivos faltantes.  
 
 # COMMAND ----------
 
-# Writeable candidates. 
-filenames_0 = [filish.name 
-    for filish in dbutils.fs.ls(abfss_read)]
+# MAGIC %md
+# MAGIC ## 1. Checar nombres
 
-# Detect
-file_regex = r"([A-Z_0-9]*?)_([0-9\-]*)\.ZIP"
-filenames_1 = [(a_name,) + re.match(file_regex, a_name).groups() 
-    for a_name in filenames_0 if re.match(file_regex, a_name)]
+# COMMAND ----------
 
-filenames_2 = {label[0]: f"{reg_labels[label[1]]}/{re.sub('-', '/', label[2])}.txt" 
-    for label in filenames_1 if label[1] in reg_labels}
+# Blobs migrados previamente. 
 
-
-labels_0 = set(fl_lb[1] for fl_lb in filenames_1)
-
-if set(reg_labels) != labels_0: 
-    raise "File Labels are not as expected."
-
-    
-blobnames_0 = [re.sub(paths['prepared']+'/', '', b_name)
+blobs_paths = [b_name
     for b_name in blob_container.list_blob_names(name_starts_with=paths['prepared'])
     if  b_name.endswith('.txt')]
 
-blobnames_1 = {z_name: t_name
-    for z_name, t_name in filenames_2.items()
-    if  t_name not in blobnames_0}
+blobs_df = (pd.DataFrame(data={
+        'abs_path': pd.Series(blobs_paths, dtype='str')})
+    .assign(rel_path = lambda df: 
+        df['abs_path'].str.replace(f"{paths['prepared']}/", '')))
+
+blobs_df
 
 # COMMAND ----------
 
-# Rutas de archivo temporales: variables globales
-# TO_DOWNLOAD, TO_UNZIP.  
+reg_labels = {
+    'ZATPTX01' : ('atpt',   'ATPXT'),
+    'DAMNA001' : ('damna',  'DAMNA'), 
+    'DAMBS101' : ('dambs',  'DAMBS1'),  
+    'DAMBS201' : ('dambs2', 'DAMBS2'), 
+    'DAMBSC01' : ('dambsc', 'DAMBSC')}
 
-def _download_blob(a_file): 
-    zip_regex  = r"[A-Z]*_[A-Z]*_([A-Z0-9]*_[0-9\-]*)\.ZIP"
-    
-    try: 
-        a_match = re.match(zip_regex, a_file)
-    
-        blob_in = f"{paths['from-cms']}/{a_file}"
-        the_blob = blob_container.get_blob_client(blob_in)
+file_regex = r"UAT_(?P<tag_1>[A-Z]*)_(?P<tag_2>[A-Z0-9]*?)_(?P<tag_date>20[0-9\-]{8})\.ZIP"
+labels = read_df['name'].str.extract(file_regex)
+def brz_name(a_row): 
+    dir_label = reg_labels[a_row['tag_2']][0]
+    return f"{dir_label}/{a_row['tag_date']}.txt"
 
-        with open(f"{to_download}", 'wb') as _f: 
-            _f.write(the_blob.download_blob().readall())
-        return 1
-    
-    except Exception as expt: 
-        return -1
+
+raw_files = (pd.concat([read_df, labels], axis=1)   # Ubicado en BRZ por error de Diseño. 
+    .query('size > 0')
+    .rename(
+        columns = {'name': 'raw_name', 'path': 'raw_path'})
+    .assign(
+        raw_name = lambda df: df['tag_2'].str.cat(df['tag_date'], sep='_'), 
+        brz_name = lambda df: df.apply(brz_name, axis=1),
+        in_blobs = lambda df: df['brz_name'].isin(blobs_df['rel_path'])))
+
+watch_tags = np.any(raw_files['tag_date'].isnull())
+raw_files.query("tag_1 == 'TRXS'").sort_values('tag_date', ascending=False)
+
+# COMMAND ----------
+
+def download_blob(abs_path, at_local): 
+    rel_path = path_2_blob(abs_path)
+    the_blob = blob_container.get_blob_client(rel_path)
+    with open(at_local, 'wb') as _f: 
+        _f.write(the_blob.download_blob().readall())
+    return
         
-        
-def _extract_file(a_file): 
-    try: 
-        with ZipFile(f"{to_download}", 'r') as _unz:
-            _unz.extractall(to_unzip)
-        dbutils.fs.rm(f"file:{to_download}")
-        return 1
-    
-    except Exception as expt: 
-        return -2
+
+def extract_file(f_name, f_src, f_tgt): 
+    with ZipFile(f"{f_src}", 'r') as _z: 
+        z_ls = _z.namelist()
+        if f_name not in z_ls: 
+            raise Exception(f"Filename {f_name} no in Zip.")
+        if len(z_ls) != 1: 
+            print(f"\nZip for {f_name} has > 1 candidates:")
+            for ff in z_ls: 
+                print(f"\t{ff}")
+        _z.extract(f_name, f_tgt)
+        dbutils.fs.rm(f"file:{f_src}")
+    return 
     
 
-def _upload_to_blob(a_file): 
-    try: 
-        write_as = filenames_2[a_file]
-        a_match  = re.match(zip_regex, a_file)
-        b_file   = a_match.group(1)
+def upload_blob(f_name, blob_path): 
+    blob_to = blob_container.get_blob_client(blob_path)
+    with open(f_name, 'rb') as _f: 
+        blob_to.upload_blob(_f)
+    dbutils.fs.rm(f"file:{f_name}")
+    return
 
-        the_blob = blob_container.get_blob_client(f"{paths['prepared']}/{write_as}")
-        with open(f"{to_unzip}/{b_file}", 'rb') as _f: 
-            the_blob.upload_blob(_f)
-        dbutils.fs.rm(f"file:{to_unzip}/{b_file}") 
-        return 1
-    except Exception as expt: 
-        return -3
+# COMMAND ----------
+
+for ii, f_row in raw_files.iterrows():
+    if f_row['in_blobs']: 
+        continue
+    
+    print(ii, f_row['raw_name'])
+    download_blob(f_row['raw_path'], to_download)
+    extract_file( f_row['raw_name'], to_download, to_unzip)
+    upload_blob(f"{to_unzip}/{f_row['raw_name']}", 
+                f"{paths['prepared']}/{f_row['brz_name']}")
+    
     
 
 # COMMAND ----------
 
-detect_encoding = True
-if detect_encoding:
+# MAGIC %md
+# MAGIC # Ajustes
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ## Encoding
+
+# COMMAND ----------
+
+debugging = False
+
+if debugging:
     from pathlib import Path
     from chardet import detect
     a_path = Path("/dbfs/FileStore/transformation-layer/tmp_unzipped/DAMNA001_2022-12-18" )
@@ -198,37 +211,10 @@ if detect_encoding:
 # COMMAND ----------
 
 # MAGIC %md 
-# MAGIC El siguiente _loop_ ejecuta la función para todos los archivos.  
+# MAGIC ## (Re)iniciar carpetas
 
 # COMMAND ----------
 
-unprocessed = []
-nn = len(blobnames_1)
-
-(ii, a_file) = list(enumerate(blobnames_1))[1]
-for (ii, a_file) in enumerate(blobnames_1): 
-    print(f"{(ii+1):6} de {nn} ... procesando archivo : {a_file}")
-    
-    status_1 = _download_blob(a_file)
-    if status_1 != 1: 
-        unprocessed.append((status_1, a_file))
-        continue
-    
-    status_2 = _extract_file(a_file)
-    if status_2 != 1: 
-        unprocessed.append((status_2, a_file))
-        continue
-    
-    status_3 = _upload_to_blob(a_file)
-    if status_3 != 1: 
-        unprocessed.append((status_3, a_file))
-
-
-# COMMAND ----------
-
-    (ii, a_file) = list(enumerate(blobnames_1))[10]
-    
-    status_1 = _download_blob(a_file)
-
-    status_2 = _extract_file(a_file)
- 
+debugging = False
+if debugging: 
+    dbutils.fs.rm(f"{abfss_write}/atptx", True)
