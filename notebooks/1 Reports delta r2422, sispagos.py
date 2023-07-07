@@ -19,24 +19,28 @@
 
 # COMMAND ----------
 
-from importlib import reload
-import config
-reload(config)
-
-# COMMAND ----------
-
 from azure.storage.blob import ContainerClient
-from datetime import datetime as dt, date, timedelta as delta 
-from dateutil.relativedelta import relativedelta as r_delta
-from math import ceil
+from datetime import datetime as dt
 from pyspark.sql import functions as F, types as T
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
 import re
 
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
+# COMMAND ----------
+from importlib import reload
+import epic_py; reload(epic_py)
+
+from epic_py.delta import EpicDF
+from epic_py.tools import next_whole_period, past_whole_period
 
 from src.utilities import write_datalake
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 
+# COMMAND ----------
 
 app_environ = ConfigEnviron(ENV, SERVER, spark)
 app_environ.set_credential()
@@ -63,30 +67,6 @@ def get_name_date(a_str):
               if yes_match else None)
     return get_it
 
-def floor_date(a_dt: date, period='month'):
-    if period == 'month': 
-        a_floor = a_dt.replace(day=1)
-    if period == 'quarter': 
-        f_month = 3*ceil(a_dt.month/3)-2
-        a_floor = a_dt.replace(day=1, month=f_month)
-    return a_floor
-
-def next_whole_period(a_dt: date, period='month'): 
-    # If A_DATE is starting the calendar period, it returns that date, 
-    #     if not, returns the beginning of the next period.  
-    period_months = {'month': 1, 'quarter': 3}
-    the_date = (floor_date(a_dt - delta(1), period) 
-        + r_delta(months=period_months[period]))
-    return the_date
-
-def past_whole_period(a_dt: date, period='month', to_return='date'): 
-    # If A_DATE is ending the calendar period, it returns that date, 
-    #    if not, returns the end of the previous period. 
-    the_date = floor_date(a_dt + delta(1), period) - delta(1)
-    the_return = (the_date if to_return == 'date' 
-            else floor_date(the_date, 'period'))
-    return the_return
-
 
 
 
@@ -111,8 +91,7 @@ cms_tables = {
     'txns'    : 'farore_transactions.slv_ops_cms_atptx_stm', 
     'accounts': 'nayru_accounts.slv_ops_cms_dambs_stm', }
 
-accounts_range = (spark.read.format('delta')
-    .load(accounts_loc)
+accounts_range = (EpicDF(spark, accounts_loc)
     .select(F.max('file_date').alias('max_date'), 
             F.min('file_date').alias('min_date'))
     .collect()[0])
@@ -127,7 +106,7 @@ print(accounts_range)
 # COMMAND ----------
 
 r2422_dates = filter(None, [get_name_date(f_ish.name) 
-    for f_ish in dbutils.fs.ls(f"{reports}/r2422/processed/")])
+        for f_ish in dbutils.fs.ls(f"{reports}/r2422/processed/")])
 
 pre_start = max(r2422_dates) if any(r2422_dates) else accounts_range['min_date']
 
@@ -139,13 +118,11 @@ print(f"From ({r2422_start}) to ({r2422_end})")
 
 # COMMAND ----------
 
-clients_genders = (spark.read.format('delta')
-    .load(clients_loc)
+clients_genders = (EpicDF(spark, clients_loc)
     .select(F.col('amna_acct').alias('ambs_cust_nbr'), F.col('amna_gender_code_1'))
     .distinct())
 
-accounts = (spark.read.format('delta')
-    .load(accounts_loc)
+accounts = (EpicDF(spark, accounts_loc)
     .filter(F.col('file_date').between(r2422_start, r2422_end))
     .withColumn('MONTH_REPORT', F.trunc(F.col('file_date'), 'month'))
     .groupby(*['MONTH_REPORT', 'ambs_cust_nbr', 'ambs_acct'])
@@ -192,8 +169,7 @@ select_cols = ['Trimestre', 'Seccion', 'Moneda',
     'Numero_de_Cuentas', 'Saldo_Promedio']
 
 # sispagos = (spark.read.format('delta').load(cms_tables['accounts'])
-sispagos = (spark.read
-    .format('delta').load(accounts_loc)
+sispagos = (EpicDF(spark, accounts_loc)
     .filter(F.col('file_date').between(sis_start, sis_end))
     .withColumn('Trimestre', F.trunc(F.col('file_date'), 'quarter'))
     .groupBy(F.col('Trimestre'))

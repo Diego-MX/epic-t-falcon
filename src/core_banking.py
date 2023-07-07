@@ -1,10 +1,10 @@
 # Diego Villamil, EPIC
 # CDMX, 4 de noviembre de 2021
 
-from datetime import datetime as dt, timedelta as delta, date
+from datetime import datetime as dt, date
 from httpx import (Client, Auth as AuthX, post as postx, BasicAuth as BasicX)
 from itertools import groupby
-from json import dumps, loads
+from json import dumps
 from math import ceil
 import pandas as pd
 from pandas import DataFrame as pd_DF
@@ -15,9 +15,9 @@ from pytz import timezone
 from uuid import uuid4
 import xmltodict
 
-    
+from epic_py.tools import dict_plus
+
 from src.core_models import Fee, FeeSet
-from src.utilities import dict_minus
 
 API_LIMIT = 500
 
@@ -153,10 +153,11 @@ class SAPSession(Client):
     
     
     def pos_txn_commission(self, txn_resp): 
-        if txn_resp.status_code == 201: 
-            feeseters = ['ProcessDate', 'ExternalID']
-            post_args = txn_resp.json()['d']
-            the_fees  = loads(txn_resp.request.content)['FeeDetail']
+        # if txn_resp.status_code == 201: 
+        #    feeseters = ['ProcessDate', 'ExternalID']
+        #    post_args = txn_resp.json()['d']
+        #    the_fees  = loads(txn_resp.request.content)['FeeDetail']
+        pass
         
         
     def call_person_set(self, params_x={}, **kwargs): 
@@ -194,8 +195,9 @@ class SAPSession(Client):
             return post_persons
         
         elif output == 'DataFrame': 
-            persons_mod = [dict_minus(a_person, rm_keys) for a_person in post_persons]
-            persons_df = (pd.DataFrame(persons_mod)
+            persons_mod = [ dict_plus(a_person).difference(rm_keys) 
+                for a_person in post_persons]
+            persons_df = (pd_DF(persons_mod)
                 .assign(ID = lambda df: df.ID.str.pad(10, 'left', '0')))
             return persons_df
         
@@ -214,7 +216,7 @@ class SAPSession(Client):
         
     
     def hook_d_results(self, response): 
-        hook_allowed_types = ['application/json', 'application/atom+xml']
+        # hook_allowed_types = ['application/json', 'application/atom+xml']
         
         the_type = response.headers['Content-Type']
         if   'application/json' in the_type: 
@@ -250,14 +252,14 @@ def str_error(an_error):
 
 
 def _xml_results(xml_text): 
-        get_entry_ds = (lambda entry_dict: 
-            {re.sub(r'^d\:', '', k_p): v_p 
-            for k_p, v_p in entry_dict.items() if k_p.startswith('d:')})
-        
-        entry_ls = xmltodict.parse(xml_text)['feed']['entry']
-        entry_props = [entry['content']['m:properties'] for entry in entry_ls]
-        entry_rslts = [get_entry_ds(prop) for prop in entry_props]
-        return entry_rslts
+    get_entry_ds = (lambda entry_dict: 
+        {re.sub(r'^d\:', '', k_p): v_p 
+        for k_p, v_p in entry_dict.items() if k_p.startswith('d:')})
+    
+    entry_ls = xmltodict.parse(xml_text)['feed']['entry']
+    entry_props = [entry['content']['m:properties'] for entry in entry_ls]
+    entry_rslts = [get_entry_ds(prop) for prop in entry_props]
+    return entry_rslts
 
 
 class SAPAuth(AuthX): 

@@ -3,8 +3,10 @@ from pandas import DataFrame as pd_DF
 from pydantic import BaseModel, validator
 from typing import List, Optional
 
-from src.utilities import snake_2_camel, MatchCase, partial2
+from epic_py.tools import str_plus, MatchCase, partial2
 
+
+snake_2_camel = lambda a_str: str_plus(a_str).to_camel()
 
 camelize_alias = partial2(snake_2_camel, ..., 
     first_too=True, post_sub={'Id': 'ID'})

@@ -56,6 +56,13 @@
 
 # COMMAND ----------
 
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
+# COMMAND ----------
+
 # Algunas constantes de negocio.  
 COMSNS_FRAME = 300   # Max número de días para cobrar comisiones. 
 COMSNS_APPLY = 100   # Max número de comisiones para mandar en un llamado. 
@@ -71,6 +78,7 @@ from pyspark.sql import functions as F, types as T, Window as W
 from pytz import timezone
 
 # COMMAND ----------
+from epic_py.delta import EpicDF
 
 from src import tools
 from src.core_banking import SAPSession
@@ -253,12 +261,11 @@ wdraw_allcols = ['atpt_acct', 'atpt_mt_eff_date', 'atpt_mt_category_code',
     'atpt_mt_posting_date', 'atpt_mt_ref_nbr', 'atpt_mt_interchg_ref'
     ] + list(wdraw_withcols.keys())
 
-wdraw_txns_0 = (spark.read.format('delta')
-    .load(atptx_loc)
+wdraw_txns_0 = (EpicDF(spark, atptx_loc)
     .filter(F.col('atpt_mt_category_code').isin([6010, 6011])))
 
 # Aquí asumimos que el REF_NUM es único.  Pero necesitamos validarlo. 
-wdraw_txns = (tools.with_columns(wdraw_txns_0, wdraw_withcols)
+wdraw_txns = (wdraw_txns_0.with_column_plus(wdraw_withcols)
     .select(wdraw_allcols)
     .filter(F.col('b_wdraw_rk_txns') == 1))   
 

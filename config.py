@@ -108,31 +108,27 @@ DELTA_TABLES = {
 
 
 LAYER_SETUP = {
-  'DateFormat' : '%Y%m%d',
-  'DAMNA' : {
-    'paths': { 
-      'zip'    : 'dbfs:/FileStore/',
-      'origen' : 'dbfs:/FileStore/DAMNA.txt',
-      'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/damna',
-      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMNA/DAMNA_Processed/'
-             }
-            },
-  'ATPTX' : {
-    'paths': { 
-      'zip'    : 'dbfs:/FileStore/',
-      'origen' : 'dbfs:/FileStore/ATPTX.txt',
-      'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/atptx',
-      'alias'  : 'por rellenar Data Diego',
-      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/ATPTX/ATPTX_Processed/'
-              }},
-  'DAMBS' : {
-    'paths': { 
-      'zip'    : 'dbfs:/FileStore/',
-      'origen' : 'dbfs:/FileStore/DAMBS.txt',
-      'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/dambs',
-      'alias'  : 'por rellenar Data Diego',
-      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMBS/DAMBS_Processed/'
-              }},
+    'DateFormat' : '%Y%m%d',
+    'DAMNA' : {
+        'paths': { 
+            'zip'    : 'dbfs:/FileStore/',
+            'origen' : 'dbfs:/FileStore/DAMNA.txt',
+            'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/damna',
+            'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMNA/DAMNA_Processed/'}},
+    'ATPTX' : {
+        'paths': { 
+            'zip'    : 'dbfs:/FileStore/',
+            'origen' : 'dbfs:/FileStore/ATPTX.txt',
+            'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/atptx',
+            'alias'  : 'por rellenar Data Diego',
+            'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/ATPTX/ATPTX_Processed/'}},
+    'DAMBS' : {
+        'paths': { 
+            'zip'    : 'dbfs:/FileStore/',
+            'origen' : 'dbfs:/FileStore/DAMBS.txt',
+            'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/dambs',
+            'alias'  : 'por rellenar Data Diego',
+            'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMBS/DAMBS_Processed/'}},
 }
 
 UAT_SPECS = {
@@ -175,6 +171,7 @@ UAT_SPECS = {
         'types': {
             'TransactionType'       : 'string'
         }} }
+
 
 
 class ConfigEnviron():
@@ -308,7 +305,7 @@ class ConfigEnviron():
             self.set_credential()
         vault_name = get_vault if get_vault else self.config['keyvault']
         params =  {
-            'vault_url': f"https://{vault_name}.vault.azure.net/", 
+            'vault_url' : f"https://{vault_name}.vault.azure.net/", 
             'credential': self.credential}
         the_vault = SecretClient(**params) 
         if get_vault is None: 

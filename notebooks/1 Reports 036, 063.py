@@ -74,13 +74,22 @@ key_date_spei = yday_ish
 
 # COMMAND ----------
 
-from src.utilities import dirfiles_df, pd_print, file_exists
-from src.tools import with_columns, write_datalake
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
+# COMMAND ----------
+
+from epic_py.tools import dirfiles_df
+
+from src.tools import write_datalake
 from src.sftp_sources import process_files
 from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP, CORE_ENV, 
-    DATALAKE_PATHS as paths, 
-    DELTA_TABLES as delta_keys)
+    ENV, SERVER, RESOURCE_SETUP,
+    DATALAKE_PATHS as paths)
+
+from epic_py.delta import EpicDF
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
@@ -148,10 +157,10 @@ ops_fpsl = {
         'txn_valid'   : F.col('C11PRDCTR').isNotNull() 
                       & F.col('C11PRDCTR').startswith('EPC') 
                       &~F.col('C35TRXTYP').startswith('S'), 
-        'num_cuenta'  : F.substring(F.col('C55CONTID'), 1, 11),  #JOIN
+        'num_cuenta'  : F.substring(F.col('C55CONTID'), 1, 11),  # JOIN
         'clave_txn'   : F.col('C35TRXTYP').cast(T.IntegerType()),
         'moneda'      : F.col('LOC_CURR'), 
-        'monto_txn'   : F.col('K5SAMLOC'), # Suma y compara. 
+        'monto_txn'   : F.col('K5SAMLOC'),     # Suma y compara. 
         'cuenta_fpsl' : F.col('IGL_ACCOUNT')}, # Referencia extra, asociada a NUM_CUENTA.  
     'post': {
         'where': ['txn_valid'], 
@@ -488,24 +497,26 @@ def read_source_table(src_key, dir_df, file_keys, output=None):
             .load(src_path))
         return table_0
         
-    table_1  = (spark.read.format('csv')
-        .options(**tsv_options[src_key])
-        .schema(schemas[src_key])
-        .load(src_path)
-        .select(*renamers[src_key]))
+    table_0 = EpicDF(spark
+            .read.format('csv')
+            .options(**tsv_options[src_key])
+            .schema(schemas[src_key])
+            .load(src_path))
+    
+    table_1 = table_0.select(*renamers[src_key])
     
     trim_str = {a_col: F.trim(a_col) 
         for a_col, a_type in base_cols[src_key].items() if a_type == 'str'}
-    table_11 = with_columns(table_1, trim_str)
+    table_11 = table_1.with_column_plus(trim_str)
     
     if output == 1: 
         return table_11
     
-    table_2 = with_columns(table_11, read_cols[src_key])
+    table_2 = table_11.with_column_plus(read_cols[src_key])
     if output == 2: 
         return table_2
     
-    table_3 = with_columns(table_2, mod_cols[src_key])
+    table_3 = table_2.with_column_plus(mod_cols[src_key])
     if output == 3 or output is None: 
         return table_3
 
@@ -530,7 +541,7 @@ if ldgr_tbl is not None:
         .agg(F.count('*').alias('fpsl_num_txns'), 
              F.round(F.sum(F.col('monto_txn')), 2).alias('fpsl_monto'))) 
     
-    display(ldgr_tbl)
+    ldgr_tbl.display()
 else: 
     ldgr_grp = None
 
@@ -552,7 +563,7 @@ if c4b_tbl is not None:
         .agg(F.count('*').alias('c4b_num_txns'), 
              F.round(F.sum(F.col('monto_txn')), 2).alias('c4b_monto'))) 
 
-    display(c4b_grp)
+    c4b_grp.display()
 else: 
     c4b_grp = None
 
@@ -573,7 +584,7 @@ if speigfb_tbl is not None:
         .agg(F.count('*').alias('gfb_num_txns'), 
              F.round(F.sum('txn_amount'), 0).alias('gfb_monto')))
 
-    display(speigfb_tbl)
+    speigfb_tbl.display()
 else: 
     speigfb_grp = None
 
@@ -594,7 +605,7 @@ if speic4b_tbl is not None:
         .agg(F.count('*').alias('c4b_num_txns'), 
              F.round(F.sum('txn_amount'), 0).alias('c4b_monto')))
 
-    display(speic4b_tbl)
+    speic4b_tbl.display()
 else: 
     speic4b_grp = None
 
@@ -671,7 +682,7 @@ except Exception as expt:
 # COMMAND ----------
 
 if base_036 is not None: 
-    display(base_036)
+    base_036.display()
 
 # COMMAND ----------
 

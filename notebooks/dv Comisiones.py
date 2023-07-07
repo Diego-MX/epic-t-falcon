@@ -30,7 +30,29 @@
 
 # COMMAND ----------
 
+from collections import OrderedDict
+import pandas as pd
+from pyspark.sql import functions as F, Window as W, types as T
+
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
+# COMMAND ----------
+
+from epic_py.delta import EpicDF
+
 from src import sftp_sources as sftp_src
+from src.core_banking import SAPSession
+from config import (ConfigEnviron, 
+    ENV, SERVER, RESOURCE_SETUP,  
+    DATALAKE_PATHS as paths)
+
+
+app_environ = ConfigEnviron(ENV, SERVER, spark)
+core_starter = app_environ.prepare_coresession('qas-sap')
+core_session = SAPSession(core_starter)
 
 # COMMAND ----------
 
@@ -39,9 +61,9 @@ spk_test = 'dbfs:/FileStore/transformation-layer/samples/ZATPTX01_EPIC_UAX_11012
 
 atpt_srcr = sftp_src.prepare_sourcer('atpt', local_layouts)
 pre_test  = sftp_src.read_delta_basic(spark, spk_test)
-ref_test  = sftp_src.delta_with_sourcer(pre_Δ, atpt_srcr)
+ref_test  = sftp_src.delta_with_sourcer(pre_test, atpt_srcr)
 
-display(ref_test)
+ref_test.display()
 
 
 # COMMAND ----------
@@ -51,20 +73,16 @@ display(ref_test)
 
 # COMMAND ----------
 
-from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP,  
-    DATALAKE_PATHS as paths)
-
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
 app_environ.sparktransfer_credential()
 
-slv_path       = paths['abfss'].format('silver', resources['storage'])
-at_datasets    = f"{slv_path}/{paths['datasets']}"  
-atptx_loc      = f"{at_datasets}/atpt/delta"
+slv_path    = paths['abfss'].format('silver', resources['storage'])
+at_datasets = f"{slv_path}/{paths['datasets']}"  
+atptx_loc   = f"{at_datasets}/atpt/delta"
 
-ref_atpt = spark.read.load(atptx_loc)
-display(ref_atpt)
+ref_atpt = EpicDF(spark, atptx_loc)
+ref_atpt.display()
 
 
 # COMMAND ----------
@@ -90,14 +108,15 @@ Diferentes ATPT_MT_INTERCHG_REF: \t{ref_atpt.select('atpt_mt_interchg_ref').dist
 
 # COMMAND ----------
 
-from pyspark.sql import functions as F, Window as W, types as T
-
 w_txn_ref = (W.partitionBy('atpt_mt_ref_nbr', 'atpt_mt_interchg_ref')
     .orderBy(F.col('atpt_mt_eff_date').desc()))
 
 prepare_cmsns = (ref_atpt
     .withColumn('b_rk_txns', F.row_number().over(w_txn_ref)))
-max_ranks = prepare_cmsns.agg({'b_rk_txns': 'max'}).collect()[0][0]
+
+max_ranks = (prepare_cmsns
+    .agg({'b_rk_txns': 'max'})
+    .collect()[0][0])
 
 unique_cmsns = (prepare_cmsns
     .filter(F.col('b_rk_txns') == 1)
@@ -107,7 +126,7 @@ print(f"""
 Max txns por identificadores:\t{max_ranks} (>> 1!!)
 Número de 'comisiones':\t\t{unique_cmsns.count()}""")
 
-display(unique_cmsns)
+unique_cmsns.display()
 
 # COMMAND ----------
 
@@ -134,14 +153,12 @@ display(unique_cmsns)
 
 # COMMAND ----------
 
-from collections import OrderedDict
-from src import tools
-
 purchase_to_savings = (lambda a_col: 
     F.concat_ws('-', F.substring(a_col, 1, 11), F.substring(a_col, 12, 3), F.lit('MX')))
    
 w_month_acct = (W.partitionBy('atpt_acct', 'b_wdraw_month')
     .orderBy(F.col('atpt_mt_eff_date').desc()))
+
 w_inhouse    = (W.partitionBy('atpt_acct', 'b_wdraw_month', 'b_wdraw_is_inhouse')
     .orderBy(F.col('atpt_mt_eff_date').desc()))
 
@@ -152,14 +169,17 @@ wdraw_withcols = OrderedDict({
     'b_wdraw_is_inhouse' : F.col('b_wdraw_acq_code') == 11072,
     'b_wdraw_rk_acct'    : F.row_number().over(w_month_acct), 
     'b_wdraw_rk_inhouse' : F.when(F.col('b_wdraw_is_inhouse'), 
-        F.row_number().over(w_inhouse)).otherwise(-1), 
+            F.row_number().over(w_inhouse)).otherwise(-1), 
     'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') | (F.col('b_wdraw_rk_inhouse') > 3)
-    })
+})
 
-final_cmsns = (tools.with_columns(unique_cmsns, wdraw_withcols)
+
+final_cmsns = (unique_cmsns
+    .with_column_plus(wdraw_withcols)
     .filter(F.col('b_wdraw_is_commissionable')))
 
-test_cmsns = (tools.with_columns(ref_test, wdraw_withcols)
+test_cmsns = (ref_test
+    .with_column_plus(wdraw_withcols)
     .filter(F.col('b_wdraw_is_commissionable')))
 
 print(f"""
@@ -167,7 +187,7 @@ Admiten comisión: {final_cmsns.count()}
 En test: {test_cmsns.count()}
 """)
 
-display(final_cmsns)
+final_cmsns.display()
 
 # COMMAND ----------
 
@@ -177,32 +197,10 @@ display(final_cmsns)
 
 # COMMAND ----------
 
-from importlib import reload
-from src import core_banking; reload(core_banking)
-
-# COMMAND ----------
-
-from src import tools, utilities as src_utils
-from src.core_banking import SAPSession
-from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP,  
-    DATALAKE_PATHS as paths)
-
-
-app_environ = ConfigEnviron(ENV, SERVER, spark)
-core_starter = app_environ.prepare_coresession('qas-sap')
-core_session = SAPSession(core_starter)
-
-# COMMAND ----------
-
 run_it = False
 if run_it: 
     responses = core_session.process_commissions_atpt(spark, 
         test_cmsns, 'atm', update=False)
-
-# COMMAND ----------
-
-responses[0].json()
 
 # COMMAND ----------
 

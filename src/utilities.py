@@ -2,25 +2,6 @@ from delta.tables import DeltaTable as Δ
 from pandas import DataFrame as pd_DF
 from pyspark.sql import functions as F, Column
 from typing import Union
-
-from epic_py.tools import (str_plus, pd_print, file_exists, dirfiles_df)
-    #dict_plus, MatchCase, partial2, as_callable,
-   
-from epic_py.delta import path_type
-    # dbks_path, when_plus,)
-                           
-
-# encode64 = lambda a_str: str_plus(a_str).encode64()
-  
-# dict_minus = lambda a_dict, keys: dict_plus(a_dict).difference(keys)
-
-
-def snake_2_camel(snake, first_too=True, pre_sub={}, post_sub={}):
-    camel = (str_plus(snake)
-        .sub_plus(pre_sub)
-        .to_camel('_', first_too)
-        .sub_plus(post_sub))
-    return camel
     
         
 def len_cols(cols_df: pd_DF) -> int: 

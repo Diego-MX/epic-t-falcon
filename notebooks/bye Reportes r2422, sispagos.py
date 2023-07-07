@@ -15,11 +15,20 @@
 
 # COMMAND ----------
 
-from datetime import datetime as dt, date, timedelta as delta 
-import pandas as pd
-from pyspark.sql import functions as F, types as T
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
+# COMMAND ----------
+
 from azure.identity import ClientSecretCredential
-from azure.storage.blob import BlobServiceClient, ContainerClient
+from azure.storage.blob import BlobServiceClient
+from datetime import datetime as dt
+from pyspark.sql import functions as F, types as T
+import re
+
+from epic_py.delta import EpicDF, file_exists
 
 # COMMAND ----------
 
@@ -43,7 +52,7 @@ local_tempfile = "/tmp/blob_report.csv"
 
 read_path = 'ops/card-management/datasets'
 blob_url = 'https://stlakehyliaqas.blob.core.windows.net/'
-storage_ext = 'stlakehyliaqas.dfs.core.windows.net
+storage_ext = 'stlakehyliaqas.dfs.core.windows.net'
 read_from  = f"abfss://silver@{storage_ext}/{read_path}"
 
 
@@ -66,7 +75,8 @@ read_from  = f"abfss://silver@{storage_ext}/{read_path}"
 via_pandas = False 
 
 if via_pandas: 
-    blob_creds = ClientSecretCredential(**{k: get_secret(v) for (k, v) in cred_keys.items()})
+    blob_creds = ClientSecretCredential(**{k: get_secret(v) 
+            for (k, v) in cred_keys.items()})
     blob_service = BlobServiceClient(blob_url, blob_creds)
     at_container = blob_service.get_container_client('silver') 
     
@@ -112,7 +122,7 @@ clients_genders = (spark.readStream(damna_delta)
     .select(*['amna_acct', 'amna_gender_code_1'])
     .distinct())
 
-accounts = (spark.read.table('nayru_accounts.slv_ops_cms_reports')
+accounts = (EpicDF(spark, 'nayru_accounts.slv_ops_cms_reports')
     .withColumn('MES_INFORMACION', F.trunc(F.col('FileDate'), 'month'))
     .groupby(*['MES_INFORMACION', 'CustomerNumber', 'AccountNumber'])
         .agg(F.count('AccountNumber').alias('N_REPS'))
@@ -130,7 +140,10 @@ r_2422 = (accounts
     .withColumnRenamed('2', 'CONTRACT_ACTIVE_DEBIT_CARD_FEMALE')
     .select(*select_cols))
 
-max_month = r_2422.select(F.max('MES_INFORMACION')).collect()[0][0].strftime('%Y-%m-%d')
+max_month = (r_2422
+    .select(F.max('MES_INFORMACION'))
+    .collect()[0][0]
+    .strftime('%Y-%m-%d'))
 
 # COMMAND ----------
 
@@ -151,7 +164,7 @@ the_date = dt.date(2022, 7, 1)
 # COMMAND ----------
 
 clients_delta = f"{write_to}/damna/delta"
-accounts_delta = = f"{write_to}/dambs/delta"
+accounts_delta = f"{write_to}/dambs/delta"
 
 select_cols = ['Trimestre', 'Seccion', 'Moneda', 
     'Tipo_Cuenta', 'Tipo_Persona', 
@@ -176,7 +189,10 @@ sispagos = (spark.readStream.format('delta')
     .withColumn('Tipo_Persona', F.lit(''))
     .select(*select_cols))
     
-max_quarter = sispagos.select(F.max('Trimestre')).collect()[0][0].strftime('%Y-%m-%d')
+max_quarter = (sispagos
+    .select(F.max('Trimestre'))
+    .collect()[0][0]
+    .strftime('%Y-%m-%d'))
 
 # COMMAND ----------
 

@@ -33,18 +33,24 @@
 # COMMAND ----------
 
 from azure.storage.blob import ContainerClient
-from collections import Counter
-from datetime import datetime as dt, date, timedelta as delta
 import numpy as np
-from os import listdir
 import pandas as pd
 from pathlib import Path
 import re
 from zipfile import ZipFile
 
-# COMMAND ----------
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
 
-from src import utilities as utils 
+# COMMAND ----------
+from importlib import reload
+import epic_py; reload(epic_py)
+import config;  reload(config)
+
+from epic_py.tools import dirfiles_df
+
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 
@@ -75,7 +81,7 @@ to_unzip    = "/dbfs/FileStore/transformation-layer/tmp_unzipped"
 
 blob_container = ContainerClient(blob_path, 'bronze', app_env.credential) 
 
-read_df = utils.dirfiles_df(abfss_read, spark)
+read_df = dirfiles_df(abfss_read, spark)
 read_df
 
 # COMMAND ----------
@@ -197,14 +203,13 @@ for ii, f_row in raw_files.iterrows():
 debugging = False
 
 if debugging:
-    from pathlib import Path
     from chardet import detect
     a_path = Path("/dbfs/FileStore/transformation-layer/tmp_unzipped/DAMNA001_2022-12-18" )
     
     # We must read as binary (bytes) because we don't yet know encoding
     blob = a_path.read_bytes()
     a_detection = detect(blob)
-    an_enc = a_detection["encoding"]
+    an_enc  = a_detection["encoding"]
     a_confd = a_detection["confidence"]
     print(f"""{an_enc} encoding at {a_confd}""")
 

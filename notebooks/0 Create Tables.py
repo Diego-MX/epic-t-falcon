@@ -10,7 +10,10 @@
 from importlib import reload
 import config
 reload(config)
-
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
 # COMMAND ----------
 
 from config import ENV, RESOURCE_SETUP, DATALAKE_PATHS as paths

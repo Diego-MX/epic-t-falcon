@@ -80,6 +80,13 @@
 
 # COMMAND ----------
 
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
+# COMMAND ----------
+
 from pyspark.sql import functions as F, types as T
 from config import LAYER_SETUP as setup
 from config import LAYER_COLS as cols

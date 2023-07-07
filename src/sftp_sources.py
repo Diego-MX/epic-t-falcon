@@ -1,12 +1,13 @@
 from datetime import date
+from delta import DeltaTable as Δ
 from itertools import product
 import pandas as pd
 from pandas import DataFrame as pd_DF
 from pyspark.sql import (functions as F, DataFrame as spk_DF)
 
+from epic_py.delta import EpicDF, path_type
+
 from src import tools, utilities as utils
-### PROCESS_FILES
-### READ_SOURCE_TABLE
 
 
 # Nos apoyamos en estos formatos de archivos predefinidos. 
@@ -24,7 +25,7 @@ date_formats = {
     'spei-ledger' : '%d%m%Y'}
 
     
-def process_files(file_df: pd_DF, a_src) -> pd_DF: 
+def process_files(file_df:pd_DF, a_src) -> pd_DF: 
     
     date_fmtr = lambda df: pd.to_datetime(df['date'], 
                 format=date_formats.get(a_src, '%Y%m%d'))
@@ -56,8 +57,8 @@ def get_match_path(dir_df, file_keys):
         elif lgls.sum() > 1: 
             return (2, "There are many matches")
     
-    matches_0 = (dir_df['date'].dt.date == date_key)
-    the_matchers = ['True'] + matchers_keys[src_key]
+    matches_0 = (dir_df['date'].dt.date == file_keys['date'])
+    the_matchers = ['True'] + matchers_keys[file_keys['key']]
     
     fails = {0: 0, 2: 0}
     for ii, other_match in enumerate(the_matchers): 
@@ -70,12 +71,12 @@ def get_match_path(dir_df, file_keys):
             print(f"Trying matches {ii+1} of {len(the_matchers)}:  failing status {has_path[0]}.")
             continue
     else: 
-        print(f"Can't find file for date {date_key}.")
+        print(f"Can't find file for date {file_keys['date']}.")
         return None
 
     
 def update_sourcers(blobber, blob_dir, trgt_dir): 
-    sources = ['damna', 'atpt', 'dambs', 'dambs2', 'dambsc']
+    sources = []
     layouts = ['detail', 'header', 'trailer']
     
     for src, lyt in product(sources, layouts): 
@@ -116,11 +117,11 @@ def prepare_sourcer(b_key, layout_dir):
     return the_selectors
     
     
-def read_delta_basic(spark, src_path, tgt_path=None, **kwargs) -> spk_DF: 
+def read_delta_basic(spark, src_path, tgt_path=None) -> spk_DF: 
     meta_cols = [('_metadata.file_name', 'file_name'), 
              ('_metadata.file_modification_time', 'file_modified')]
     
-    src_fs = utils.path_type(src_path, spark)[1]
+    src_fs = path_type(src_path, spark)[1]
     
     if ((src_fs == 'Folder') 
             and (tgt_path is not None) 
@@ -141,15 +142,16 @@ def read_delta_basic(spark, src_path, tgt_path=None, **kwargs) -> spk_DF:
         optn_hdr    = 'true'
         optn_mod    = date(2020, 1, 1)
     
-    pre_delta = (spark.read.format('text')
+    pre_delta = (EpicDF(spark.read.format('text')
         .option('recursiveFileLookup', optn_lookup)
         .option('header', optn_hdr)
-        .load(src_path, modifiedAfter=optn_mod)
+        .load(src_path, modifiedAfter=optn_mod)))
+    
+    basic = (pre_delta
         .select('value', *[F.col(a_col[0]).alias(a_col[1]) 
                 for a_col in meta_cols])
         .withColumn('value', F.decode('value', 'iso-8859-1')))
-    
-    return pre_delta
+    return basic
 
 
 def delta_with_sourcer(pre_Δ: spk_DF, sourcer, only_substring=False) -> spk_DF: 

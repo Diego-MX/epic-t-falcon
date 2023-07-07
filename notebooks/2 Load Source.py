@@ -25,10 +25,15 @@
 
 # COMMAND ----------
 
-from datetime import date
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
+# COMMAND ----------
+
 from delta.tables import DeltaTable as Δ
-import pandas as pd
-from pyspark.sql import (DataFrame as spk_DF, functions as F, Window as W)
+from pyspark.sql import (functions as F, Window as W)
 from pathlib import Path
 
 # COMMAND ----------
@@ -40,8 +45,8 @@ from src import sftp_sources as sftp; reload(sftp)
 
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, 
-    DATALAKE_PATHS as paths, 
-    DELTA_TABLES as delta_keys)
+    DATALAKE_PATHS as paths)
+
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)

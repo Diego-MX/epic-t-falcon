@@ -1,3 +1,4 @@
+from delta import DeltaTable as Δ
 import numpy as np
 import pandas as pd
 from epic_py.tools import read_excel_table
@@ -13,18 +14,18 @@ def fiserv_data(a_df: pd.DataFrame) -> pd.DataFrame:
         'aux_fill'  : lambda df: df['Field Name'].str.match(r'.*filler', case=False), 
         'aux_date'  : lambda df: df['Technical Mapping'].str.find('YYYYMMDD') > -1, 
         'aux_sign'  : lambda df: df['Technical Mapping'].str.find('+ or -'  ) > -1, 
-        'name_1'    : lambda df: df['Technical Mapping']
+        'name_1'    :(lambda df: df['Technical Mapping']
             .str.strip().str.split(' ').str[0].str.lower()
             .str.replace(r'\((\d+)\)', r'_\1', regex=True)
-            .str.replace('-', '_'), 
+            .str.replace('-', '_')), 
         'name'      : lambda df: np.where(~df['aux_sign'], df['name_1'], 
             df['name_1'].shift(-1) + '_sgn'),
         'chk_sign'  : lambda df: np.where(~df['aux_sign'], True, 
             df['Field Name'].str.replace(' - sign', '') == df['Field Name'].shift(-1)), 
-        'chk_len'   : lambda df: (df['From'] + df['Length'] == df['From'].shift(-1)) 
-            | (np.arange(len(df)) == len(df)-1), 
-        'chk_name'  : lambda df: ~df['name'].duplicated() 
-            | df['aux_sign'] | df['aux_fill']}
+        'chk_len'   :(lambda df: (df['From'] + df['Length'] == df['From'].shift(-1)) 
+            | (np.arange(len(df)) == len(df)-1)), 
+        'chk_name'  :(lambda df: ~df['name'].duplicated() 
+            | df['aux_sign'] | df['aux_fill'])}
 
     b_df = (a_df
         .rename(lambda a_str: a_str.strip(), axis=1)
