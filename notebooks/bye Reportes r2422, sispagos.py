@@ -6,12 +6,13 @@
 # MAGIC `ii)` **Sispagos**- (trimestral) contiene el número de cuentas y el saldo promedio de acuerdo a ciertas clasificaciones.   
 # MAGIC &ensp;&ensp; En un inicio se tomaron las clasificaciones fijas, o sea sólo una;  
 # MAGIC &ensp;&ensp; pero a continuación se requirió la expansión de otras clasificaciones.  
-# MAGIC 
+# MAGIC
 # MAGIC Este _notebook_ incluye las siguientes partes: 
 # MAGIC - Preparación: sirve para definir paquetes y variables.  
 # MAGIC - Ejecución de los reportes en el orden mencionado.  Para cada uno de ellos:  
 # MAGIC   `i)`&ensp; Se calcula el reporte.  
 # MAGIC   `ii)` Se escribe en el _datalake_. 
+# MAGIC
 
 # COMMAND ----------
 
@@ -51,14 +52,14 @@ read_from  = f"abfss://silver@{storage_ext}/{read_path}"
 
 # MAGIC %md 
 # MAGIC ## Escritura de archivo
-# MAGIC 
+# MAGIC
 # MAGIC Las tablas reporte se calculan directamente en formato Δ, y de acuerdo al flujo funcional 
 # MAGIC se escriben como `csv` en una carpeta tipo SFTP dentro del _datalake_.   
-# MAGIC 
+# MAGIC
 # MAGIC La tabla Δ tiene funcionalidad para escribirse como `csv`, con la particularidad de que 
 # MAGIC agrega muchos archivos de metadatos.  Para remediar esto, convertimos el _dataframe_ de Spark resumen 
 # MAGIC a formato Pandas, y lo escribimos como blob.  
-# MAGIC 
+# MAGIC
 # MAGIC La siguiente configuración y función se encargan de estos pasos.   
 
 # COMMAND ----------
