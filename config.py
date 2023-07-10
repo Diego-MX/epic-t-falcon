@@ -6,11 +6,45 @@ from os import environ, getenv, remove
 from pathlib import Path
 import re
 
+from epic_py.platform import EpicIdentity
+
 load_dotenv('.env', override=True)
 
-ENV = environ.get('ENV_TYPE')
-SERVER = environ.get('SERVER_TYPE')
-CORE_ENV = environ.get('CORE_ENV')
+SETUP_2 = {
+    # Nueva versión de RESOURCE_SETUP abajo. 
+    'dev': {}, 
+    'qas': {
+        'service-principal': {
+            'tenant_id'        : 'aad-tenant-id', 
+            'subscription_id'  : 'sp-core-events-suscription', 
+            'client_id'        : 'sp-core-events-client', 
+            'client_secret'    : 'sp-core-events-secret'}, 
+        'databricks-scope' : 'eh-core-banking'}, 
+    'stg': {
+        'databricks-scope': 'ops-conciliations-stg', 
+        'service-principal' : {
+            'tenant_id'        : 'aad-tenant-id', 
+            'subscription_id'  : 'sp-ops-conciliations-subscription', 
+            'client_id'        : 'sp-ops-conciliations-client', 
+            'client_secret'    : 'sp-ops-conciliations-secret'}}, 
+    'prd': {
+        'databricks-scope': 'ops-conciliations-prd', 
+        'service-principal' : {
+            'tenant_id'        : 'aad-tenant-id', 
+            'subscription_id'  : 'sp-ops-conciliations-subscription', 
+            'client_id'        : 'sp-ops-conciliations-client', 
+            'client_secret'    : 'sp-ops-conciliations-secret'} }, 
+    'drp': {}
+}
+
+RESOURCES_2 = {
+    'qas': {
+        'storage' : 'stlakehyliaqas', 
+        'keyvault': 'kv-cx-data-qas'}, 
+    'stg': {}, 
+    'prd': {}, 
+    'drp': {}
+}
 
 
 RESOURCE_SETUP = {
@@ -78,6 +112,23 @@ CORE_SETUP = {
                 'password': (1, 'core-api-password')} } } }
 
 
+CORE_2 = {
+    'qas-sap': {
+        'base-url': "https://apiqas.apimanagement.us21.hana.ondemand.com/s4b",
+        'auth-url': "https://apiqas.apimanagement.us21.hana.ondemand.com/oauth2/token", 
+        'client_id'    : 'core-api-key', 
+        'client_secret': 'core-api-secret', 
+        'sap_username' : 'core-api-user',
+        'sap_password' : 'core-api-password'},
+    'prod-sap': {
+        'base-url': "https://sbx-latp-apim.prod.apimanagement.us20.hana.ondemand.com/s4b",
+        'auth-url': "https://latp-apim.prod.apimanagement.us20.hana.ondemand.com/oauth2/token", 
+        'client_id': 'core-api-key', 
+        'client_secret': 'core-api-secret', 
+        'sap_username' : 'core-api-user',
+        'sap_password' : 'core-api-password'},
+}
+
 # Env-independent Usage Variables. 
 
 DATALAKE_PATHS = {
@@ -106,7 +157,6 @@ DELTA_TABLES = {
     'DAMBSC': 'nayru_accounts.slv_ops_cms_dambsc_stm'}
 
 
-
 LAYER_SETUP = {
   'DateFormat' : '%Y%m%d',
   'DAMNA' : {
@@ -114,9 +164,8 @@ LAYER_SETUP = {
       'zip'    : 'dbfs:/FileStore/',
       'origen' : 'dbfs:/FileStore/DAMNA.txt',
       'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/damna',
-      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMNA/DAMNA_Processed/'
-             }
-            },
+      'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMNA/DAMNA_Processed/'}
+    },
   'ATPTX' : {
     'paths': { 
       'zip'    : 'dbfs:/FileStore/',
@@ -331,3 +380,10 @@ class ConfigEnviron():
         return sessioner
     
     
+ENV = environ.get('ENV_TYPE')
+SERVER = environ.get('SERVER_TYPE')
+CORE_ENV = environ.get('CORE_ENV')
+
+t_agent = EpicIdentity.create(SERVER, config=SETUP_2[ENV])
+t_resources = t_agent.get_resourcer(RESOURCES_2[ENV])
+
