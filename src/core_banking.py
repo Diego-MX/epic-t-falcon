@@ -269,8 +269,6 @@ class SAPSession(Client):
         
 
     def set_auth(self): 
-        
-
         auth_args = {
             'url' : self.config['auth']['url'], 
             'data': self.call_dict(self.config['auth']['data']), 
@@ -381,7 +379,3 @@ def _xml_results(xml_text):
     entry_rslts = [get_entry_ds(prop) for prop in entry_props]
     return entry_rslts
 
-
-
-            
-   

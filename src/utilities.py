@@ -16,6 +16,7 @@ from toolz.dicttoolz import valmap
 from typing import Union
 
 
+
 encode64 = (lambda a_str: 
     base64.b64encode(a_str.encode('ascii')).decode('ascii'))
 
@@ -125,15 +126,6 @@ def dbks_path(a_path: Path):
     return b_str
 
 
-def when_plus(when_dict): 
-    λ_when = lambda ff, k_v: ff.when(k_v[1], F.lit(k_v[0]))
-    w_dict = when_dict.copy()
-    w_else = w_dict.get(None, None)
-    F_when  = reduce(λ_when, w_dict.items(), F)
-    return F_when.otherwise(F.lit(w_else))
-
-
-
 def upsert_delta(spark, new_tbl, base_path, 
         how, on_cols:Union[list, dict]): 
     if how == 'simple': 
@@ -179,27 +171,5 @@ def get_date(a_col: Union[str, Column]) -> Column:
     date_col = F.to_date(F.regexp_extract(a_col, date_reg, 0), 'yyyy-mm-dd')
     return date_col
 
-
-class MatchCase(): 
-    def __init__(self, case_dict: dict, via=None): 
-        self._via = via
-        self._case_dict = case_dict.copy()
-
-        self.via = as_callable(via) if (via is not None) else (identity)
-        case_dict.setdefault(None)
-        self.case_dict = valmap(as_callable, case_dict)
-        
-    def __call__(self, xx): 
-        kk = self.via(xx)
-        vv = self.case_dict.get(kk)
-        return vv(xx)
-
-
-class partial2(partial): 
-    def __call__(self, *args, **keywords):
-        keywords = {**self.keywords, **keywords}
-        iargs = iter(args)
-        args = (next(iargs) if arg is ... else arg for arg in self.args)
-        return self.func(*args, *iargs, **keywords)
     
     

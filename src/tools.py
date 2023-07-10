@@ -1,11 +1,16 @@
+
 from functools import reduce
 import numpy as np
+from os import path
 import pandas as pd
 from pandas import DataFrame as pd_DF, Series as pd_S
 from pyspark.dbutils import DBUtils
 from pyspark.sql import (functions as F, types as T, 
     Column as Col, DataFrame as spk_DF)
+import re
 from typing import List, Dict, Union
+
+from .utilities import file_exists
 
 
 def colsdf_prepare(a_df: pd_DF) -> pd_DF: 
@@ -130,4 +135,3 @@ def write_datalake(a_df: Union[spk_DF, pd_DF, pd_S],
         the_blob.upload_blob(str_df, encoding='utf-8', overwrite=overwrite)
     
 
-    
