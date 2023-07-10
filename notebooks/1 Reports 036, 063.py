@@ -15,30 +15,9 @@
 
 # COMMAND ----------
 
-# MAGIC %md 
-# MAGIC Se numera con 0, ya que esta sección contiene puro código preparativo.  
-# MAGIC Esto corresponde a la compra de ingredientes y utensilios antes de preparar una receta.  
-# MAGIC 
-# MAGIC - En la celda inicial cargamos los módulos y funciones que corresponden a librerías públicas.  
-# MAGIC - A continuación utilizamos la función `importlib.reload` para recargar módulos locales que se llegan a utilizar en el desarrollo del _notebook_.  
-# MAGIC   Otros autores utilizan el comando similar `$ load_ext autoreload; autoreload 2`.  
-# MAGIC   Se prefiere `reload` por ser más explícita en cuanto a los módulos que se recargan.  
-# MAGIC - Finalmente hacemos la carga de módulos locales.  Estos contienen tanto funciones, como variables de ambiente que se gestionan localmente.  
-# MAGIC 
-# MAGIC Cabe mencionar que el orden en que se definen los ingredientes es inverso al orden de especificidad de su entendimiento.  
-# MAGIC - Por definición:  librerías públicas -> funciones utilitarias -> variables de entorno.  
-# MAGIC - Por inteligibilidad:  
-# MAGIC   1) Las variables de entorno se requieren por otros equipos, 
-# MAGIC   2) Las funciones utilitarias se utilizan internamente, 
-# MAGIC   3) Las librerías públicas se mantienen como referencia, aunque por ser públicas serían más fáciles de asumir.  
-
-# COMMAND ----------
-
 from datetime import datetime as dt, date, timedelta as delta
 from collections import OrderedDict
-from operator import attrgetter
 import pandas as pd
-
 from pyspark.sql import functions as F, types as T
 from pytz import timezone
 import re
@@ -46,17 +25,15 @@ import re
 # COMMAND ----------
 
 now_mx = dt.now(timezone('America/Mexico_City'))
-days_back = 3 if (now_mx.weekday == 0) else 1
-yday_ish = now_mx.date() - delta(days=days_back)
-yday_ish = date(2023, 3, 6)
+yday_ish = now_mx.date() - delta(days=1)  # En flujo normal.  Se toma el día de ayer. 
+yday_ish = date(2023, 12, 31)  
 
-# ya se hizo un puto desmadre cuando empezaron a cambiar fechas, y áreas bancarias.  
+# ya se hizo un pequeño desorden cuando empezaron a cambiar fechas, y áreas bancarias.  
 which_files = {
-    'cloud-banking' : {'date': yday_ish, 'key' : 'CCB15'}, 
-    'subledger'     : {'date': yday_ish, 'key' : 'FZE03'}, 
-    'spei-banking'  : {'date': yday_ish, 'key2': 'CB15' }, 
-    'spei-ledger'   : {'date': yday_ish+delta(1), 'key': '900002'}}
-
+    'cloud-banking' : {'date': yday_ish, 'key' : 'CC4B3'},  # 'CCB15'
+    'subledger'     : {'date': yday_ish, 'key' : 'FZE05'},  # 'FZE03'
+    'spei-banking'  : {'date': yday_ish, 'key2': 'CC4B3'},  # 'CB15'
+    'spei-ledger'   : {'date': yday_ish, 'key' : '900002'}} # '900002'
 
 key_date_ops  = yday_ish
 key_date_spei = yday_ish
@@ -64,23 +41,29 @@ key_date_spei = yday_ish
 
 # COMMAND ----------
 
-# MAGIC %md  
-# MAGIC 
-# MAGIC Usamos 3 módulos independientes:  `utilities`, `schema_tools`, `config`.  
-# MAGIC 
-# MAGIC - La distinción entre los primeros dos no es suuuper inminente, pero se mantienen separados para consistencia con otros repositorios similares.   
-# MAGIC   En esencia contienen funciones para manipular los objetos que se trabajan.  
-# MAGIC - Las variables y objetos de `config` se utilizan en conjunto con otros equipos como x ej. Infraestructura.  
+from importlib import reload
+import epic_py; reload(epic_py)
+import config; reload(config)
 
-# COMMAND ----------
+from src import tools; reload(tools)
+from src import utilities; reload(utilities)
+
+# Utilities    : lower level helper functions. 
+# Tools        : higher level helper functions. 
+# SFTP_sources : handle project specific materials. 
+# Config       : check with Infrastructure.  
 
 from src.utilities import dirfiles_df, pd_print, file_exists
 from src.tools import with_columns, write_datalake
 from src.sftp_sources import process_files
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, CORE_ENV, 
-    DATALAKE_PATHS as paths, 
-    DELTA_TABLES as delta_keys)
+    DATALAKE_PATHS as paths, DELTA_TABLES as delta_keys, 
+    t_agent, t_resources)
+
+t_storage = t_resources['storage']
+t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')
+#t_resources.set_dbks_permissions(t_permissions)
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
@@ -100,8 +83,10 @@ at_reports       = f"{gld_base}/{paths['reports2']}"
 
 print(f"""
 Conciliación: {at_conciliations}
-SPEI-C4B:     {at_spei_banking}
-SPEI-GFB:     {at_spei_ledger}""")
+SPEI-C4B    : {at_spei_banking}
+SPEI-GFB    : {at_spei_ledger}
+Reports     : {at_reports}
+""")
 
 # COMMAND ----------
 
@@ -111,7 +96,7 @@ SPEI-GFB:     {at_spei_ledger}""")
 # COMMAND ----------
 
 # MAGIC %md  
-# MAGIC 
+# MAGIC
 # MAGIC - Las fuentes de datos que utilizamos se alojan en carpetas del _datalake_.  
 # MAGIC - Los archivos de las carpetas tienen metadatos en sus nombres, que se extraen en la subsección `Regex Carpetas`.  
 # MAGIC - Además los archivos consisten de datos tabulares cuyos esquemas se construyen en la sección correspondiente.  
@@ -122,7 +107,7 @@ SPEI-GFB:     {at_spei_ledger}""")
 # MAGIC     sistema de pagos de transferencias electrónicas por Grupo Financiero Banorte,  
 # MAGIC   + `spei-banking`; sistema operativo de transferencias electrónicas;  
 # MAGIC     sistema de pagos de transferencias electrónicas en C4B de SAP. 
-# MAGIC 
+# MAGIC
 # MAGIC Se muestra el contenido de las fuentes, a partir de los archivos correspondientes.   
 # MAGIC La lectura de las mismas se pospone a la siguiente sección.   
 
@@ -255,11 +240,11 @@ spei_c4b = {
         'amount_local' : F.concat_ws('.',  
                 F.regexp_replace(F.col('AMOUNT_LOCAL'), '\.', ''), 
                 F.col('AMOUNT_CENTS')).cast(T.DoubleType()), 
-        'txn_postdate'  : F.col('txn_postdate').cast(T.DateType()), 
-        'value_date'    : F.col('value_date').cast(T.DateType()), 
-        'e2e_type'      : F.regexp_extract('end_to_end', ref_regex, 1), 
-        'e2e_date'      : F.regexp_extract('end_to_end', ref_regex, 2),  
-        'e2e_num2'      : F.regexp_extract('end_to_end', ref_regex, 3)}, 
+        'txn_postdate' : F.col('txn_postdate').cast(T.DateType()), 
+        'value_date'   : F.col('value_date').cast(T.DateType()), 
+        'e2e_type'     : F.regexp_extract('end_to_end', ref_regex, 1), 
+        'e2e_date'     : F.regexp_extract('end_to_end', ref_regex, 2),  
+        'e2e_num2'     : F.regexp_extract('end_to_end', ref_regex, 3)}, 
     'mod': {
         'txn_valid'      : F.col('end_to_end').rlike(ref_regex)
                         & (F.col('txn_status') != 'Posting Canceled'), # Filtrar
@@ -368,10 +353,12 @@ renamers = {
 
 # COMMAND ----------
 
+since_when = yday_ish - delta(5)
 data_src   = 'subledger'
 pre_files  = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
 ldgr_files = process_files(pre_files, data_src)
-ldgr_files.sort_values(['date'], ascending=False)
+print(which_files['subledger'])
+ldgr_files.sort_values(['date'], ascending=False).query(f"date >= '{since_when}'")
 
 # COMMAND ----------
 
@@ -383,7 +370,8 @@ ldgr_files.sort_values(['date'], ascending=False)
 data_src  = 'cloud-banking'
 pre_files = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
 c4b_files = process_files(pre_files, data_src)
-c4b_files.sort_values('date', ascending=False)
+print(which_files['cloud-banking'])
+c4b_files.sort_values('date', ascending=False).query(f"date >= '{since_when}'")
 
 # COMMAND ----------
 
@@ -394,7 +382,7 @@ c4b_files.sort_values('date', ascending=False)
 
 # MAGIC %md 
 # MAGIC **Nota**  
-# MAGIC + Le llamamos _ledger_ a la fuente de transacciones SPEI de Banorte (GFB), pero no es técnicamente un registro contable.  
+# MAGIC + Llamamos _ledger_ a la fuente de transacciones SPEI de Banorte (GFB), aunque no sea registro contable.  
 # MAGIC   Esta fuente contiene el backlog de las transferencias SPEI.  
 # MAGIC + La clave `900002` significa algo muy importante, es el número que nos asigna Banorte.  
 # MAGIC + Sobre la hora, en el ejercicio inicial nos da todo `160323`.  
@@ -404,7 +392,8 @@ c4b_files.sort_values('date', ascending=False)
 
 pre_files_1   = dirfiles_df(at_spei_ledger, spark)
 speigfb_files = process_files(pre_files_1, 'spei-ledger')
-speigfb_files.sort_values('date', ascending=False)
+print(which_files['spei-ledger'])
+speigfb_files.sort_values('date', ascending=False).query(f"date >= '{since_when}'")
 
 
 # COMMAND ----------
@@ -431,7 +420,7 @@ speigfb_files.sort_values('date', ascending=False)
 # MAGIC |CONCILIACION | CB14_01| |DATALAKE     | CB14   |
 # MAGIC |CONCILIACION | S4B1_01| |DATALAKE     | S4B1   |
 # MAGIC |CONCILIACION | S4B1_02| |DATALAKE     | S4B1*  |
-# MAGIC 
+# MAGIC
 # MAGIC `*`: Se repite la llave2 de acuerdo al match `CONCILIACION-DATALAKE`. 
 
 # COMMAND ----------
@@ -445,15 +434,11 @@ speigfb_files.sort_values('date', ascending=False)
 
 # COMMAND ----------
 
-pre_files_1.sort_values('name', ascending=False)
-
-# COMMAND ----------
-
 pre_files_1 = dirfiles_df(at_spei_banking, spark)
 pre_files_0 = process_files(pre_files_1, 'spei-banking')
 speic4b_files = pre_files_0.loc[pre_files_0['key1'] == 'CONCILIACION']
-
-pre_files_0.sort_values('date', ascending=False)
+print(which_files['spei-banking'])
+pre_files_0.sort_values('date', ascending=False).query(f"date >= '{since_when}'")
 
 # COMMAND ----------
 
@@ -463,7 +448,7 @@ pre_files_0.sort_values('date', ascending=False)
 # COMMAND ----------
 
 # MAGIC %md  
-# MAGIC 
+# MAGIC
 # MAGIC Utilizamos una llave general de fecha `key_date` para leer los archivos de las 4 fuentes.  
 # MAGIC Para cada fuente seguimos el procedimiento:  
 # MAGIC     - Identificar un archivo, y sólo uno, con la fecha proporcionada.  
@@ -472,10 +457,13 @@ pre_files_0.sort_values('date', ascending=False)
 
 # COMMAND ----------
 
-def read_source_table(src_key, dir_df, file_keys, output=None): 
+def read_source_table(src_key, dir_df, file_keys, output=None, verbose=False): 
     q_str = ' & '.join(f"({k} == '{v}')" 
         for k, v in file_keys.items())
     
+    if verbose: 
+        print(q_str)
+
     path_df = dir_df.query(q_str)
     if path_df.shape[0] != 1: 
         print(f"File keys match is not unique.")
@@ -541,7 +529,7 @@ else:
 
 # COMMAND ----------
 
-c4b_tbl = read_source_table('cloud-banking', c4b_files, which_files['cloud-banking'])
+c4b_tbl = read_source_table('cloud-banking', c4b_files, which_files['cloud-banking'], verbose=True)
 
 if c4b_tbl is not None: 
     c4b_grp = (c4b_tbl
@@ -552,7 +540,7 @@ if c4b_tbl is not None:
         .agg(F.count('*').alias('c4b_num_txns'), 
              F.round(F.sum(F.col('monto_txn')), 2).alias('c4b_monto'))) 
 
-    display(c4b_grp)
+    c4b_grp.display()
 else: 
     c4b_grp = None
 
@@ -605,7 +593,7 @@ else:
 
 # COMMAND ----------
 
-dev = True
+dev = False
 if dev: 
     report_specs = {
         '036': {
@@ -627,7 +615,7 @@ if dev:
 
 # COMMAND ----------
 
-# write_036 = 
+
 dir_036  = f"{at_reports}/operational"
 
 try:
@@ -663,15 +651,11 @@ try:
             a_path=f"{dir_036}/subledger/{key_date_ops}_036_fpsl.csv")
     write_datalake(c4b_036, spark=spark, overwrite=True,
             a_path=f"{dir_036}/cloud-banking/{key_date_ops}_036_c4b.csv")
-    
+
+    base_036.display()   
 except Exception as expt: 
     print(str(expt))
     base_036 = None
-
-# COMMAND ----------
-
-if base_036 is not None: 
-    display(base_036)
 
 # COMMAND ----------
 
@@ -688,7 +672,7 @@ try:
         .join(speigfb_grp, how='full', on=['ref_num', 'account_num', 'txn_type_code'])
         .withColumn('check_key', 
             F.when((F.col('gfb_num_txns') == F.col('c4b_num_txns')) 
-                 & (F.col('gfb_monto')    == F.col('c4b_monto')), 'valida')
+                &  (F.col('gfb_monto')    == F.col('c4b_monto')), 'valida')
              .when((F.col('gfb_num_txns') == 0) | (F.col('gfb_num_txns').isNull()), 'gfb')
              .when((F.col('c4b_num_txns') == 0) | (F.col('c4b_num_txns').isNull()), 'c4b')
              .otherwise('indeterminada')))
@@ -722,7 +706,7 @@ except:
 
 # MAGIC %md 
 # MAGIC ### Resultados
-# MAGIC 
+# MAGIC
 # MAGIC Aquí vemos algunos de los resultados claves de le ejecución:  
 # MAGIC - Procesos que no se concluyeron.  
 # MAGIC - Resumenes de los que sí.  
@@ -739,7 +723,7 @@ if ldgr_grp is None:
     print(f"No se encontró FPSL correspondiente a {dumps2(which_files['subledger'])}.")
 
 if c4b_grp is None: 
-    print(f"No se encontró C4B correspondiente a {dumps2(which_files['core-banking'])}.")
+    print(f"No se encontró C4B correspondiente a {dumps2(which_files['cloud-banking'])}.")
 
 if speigfb_grp is None: 
     print(f"No se encontró SPEI-GFB correspondiente a {dumps2(which_files['spei-ledger'])}.")
