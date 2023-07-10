@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md 
 # MAGIC # Introducción
-# MAGIC 
+# MAGIC
 # MAGIC En este reporte veremos el proceso de la aplicación de comisiones por retiros de cajeros.  
 # MAGIC Como descripción, las comisiones se aplican sólo a ciertos retiros de cajeros:  aquellos que exedieron el número permitido mensual en cajeros propios de la red (_inhouse_), o bien que se realizaron en cajeros externos a la red.  
 # MAGIC La fuente de estos retiros a los que les aplicamos una comisión son los archivos ATPT que nos proporciona Fiserv, el sistema de manejo de tarjetas.  
@@ -11,22 +11,24 @@
 # MAGIC 2. Identificar los retiros que son susceptibles de una comisión.  
 # MAGIC 3. Aplicar la comisión de esos retiros _comisionables_.  
 # MAGIC 4. Rectificar que la comisión de los retiros se aplicó exitosamente.  
-# MAGIC 
+# MAGIC
 # MAGIC En la última reunión del equipo se discutieron resultados sobre la aplicación de comisiones en tiempos de pruebas.   
 # MAGIC El enfoque de aplicación de pruebas no era del todo compatible con el enfoque de desarrollo en camino a la puesta en producción.  
 # MAGIC Mientras que las pruebas se realizan de manera local, con tomas de pantalla y archivos compartidos por correo; los ambientes de desarrollo no admiten archivos personales, y se ejecutan en los servidores de la nube.  
-# MAGIC 
+# MAGIC
 # MAGIC A continuación veremos la aplicación de comisiones a los retiros de pruebas, a su vez que describimos el proceso general de comisiones en el ambiente de nube.  
 
 # COMMAND ----------
 
 # MAGIC %md 
 # MAGIC # 0. Preparación de archivos y lectura. 
-# MAGIC 
+# MAGIC
 # MAGIC Para las pruebas utilizamos el archivo `ZATPTX01_EPIC_UAX_11012023.txt`.   
 # MAGIC Aunque parecido, es de resaltar que el formato de nombre es distinto a los que recibimos regularmente, ej. `UAT_TRXS_ZATPTX01_2023-01-31.ZIP`, o bien `ZATPTX01_2023-01-31` al descomprimirlo. 
-# MAGIC 
+# MAGIC
 # MAGIC Preparamos carpetas donde se leen los directorios y mostramos la tabla correspondiente al archivo de pruebas. 
+# MAGIC
+# MAGIC
 
 # COMMAND ----------
 
@@ -140,9 +142,9 @@ unique_cmsns.display()
 
 # MAGIC %md
 # MAGIC #2. Retiros comisionables 
-# MAGIC 
+# MAGIC
 # MAGIC Se mencionaron las características para cobrar comisiones a un retiro:  que supere el límite de retiros mensual para cajeros _inhouse_ de la red propia, o que se efectue en cajeros externos.    
-# MAGIC 
+# MAGIC
 # MAGIC Entonces calculamos las siguientes variables:  
 # MAGIC - `w_month` el mes de la transacción de acuerdo a `atpt_mt_eff_date`
 # MAGIC - `w_acq_code` la clave de banco adquirente de acuerdo a `atpt_mt_interchg_ref`  
@@ -150,6 +152,9 @@ unique_cmsns.display()
 # MAGIC - `w_rk_acct` el número de retiro en el mes agrupado por cuenta  
 # MAGIC - `w_rk_inhouse`  el número de retiro en cajeros de la red propio (también por cuenta)  
 # MAGIC - `w_is_commissionable` tecnicamente `w_rk_inhouse > 3` o `NOT(w_is_inhouse)`. 
+# MAGIC
+# MAGIC
+# MAGIC
 
 # COMMAND ----------
 
