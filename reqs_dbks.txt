@@ -1,6 +1,7 @@
 pandas
 pydantic
 toolz
+python-dotenv
 
 # Utilities
 azure-identity

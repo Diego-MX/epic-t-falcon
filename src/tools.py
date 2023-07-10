@@ -6,11 +6,14 @@ from typing import Union
 
 from epic_py.delta import EpicDF, file_exists
 
+
 from pyspark.sql import SparkSession
 from pyspark.dbutils import DBUtils
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
+
+from .utilities import file_exists
 
 
 def colsdf_prepare(a_df: pd_DF) -> pd_DF: 
@@ -122,4 +125,3 @@ def write_datalake(a_df: Union[spk_DF, pd_DF, pd_S],
         the_blob.upload_blob(str_df, encoding='utf-8', overwrite=overwrite)
     
 
-    

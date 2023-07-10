@@ -59,7 +59,7 @@ class FeeSet(BaseModel):
     class Config:
         alias_generator = camelize_alias
         json_encoders = {
-            datetime: lambda dt: dt.strftime('%Y%m%d')}
+            datetime: lambda a_dt: a_dt.strftime('%Y%m%d')}
         allow_population_by_field_name = True
 
     external_id  : str
