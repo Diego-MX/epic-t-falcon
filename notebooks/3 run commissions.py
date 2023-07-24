@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md 
 # MAGIC # Introducción
-# MAGIC 
+# MAGIC
 # MAGIC Este _notebook_ es para ejecutarse como _job_ de manejo de comisiones (de retiros).  
 # MAGIC Potencialmente podrá gestionar retiros en general, u otras comisiones.  
 # MAGIC Consta de los siguientes secciones:  
@@ -15,11 +15,11 @@
 
 # MAGIC %md
 # MAGIC ### Explicación y puntos de fricción  
-# MAGIC 
+# MAGIC
 # MAGIC - La tabla de transacciones ATPT se conforma de archivos enviados diariamente.   
 # MAGIC   Se asume que cada todas las transacciones se almacenan en los archivos, y que cada una pertenece a sólo un archivo.  
 # MAGIC   ... peeeero eso no se ha verificado.  
-# MAGIC 
+# MAGIC
 # MAGIC - La tabla de comisiones (registradas) se crea a partir de las respuestas de la API de SAP.  
 # MAGIC   
 # MAGIC - La API de comisiones requiere el número de cuenta en formato SAP, la tabla de transacciones lo tiene en formato Fiserv.  
@@ -30,9 +30,9 @@
 # MAGIC   El _swagger_ correspondiente se puede acceder [desde fiori][fiori] o [directo en código JSON][json].  
 # MAGIC   Para la segunda referencia se puede utilizar [este visualizador en la web][web-editor], o con herramientas de VS-Code. 
 # MAGIC   
-# MAGIC 
+# MAGIC
 # MAGIC Por el momento, eso es todo.  
-# MAGIC 
+# MAGIC
 # MAGIC [json]: https://apidev.apimanagement.us21.hana.ondemand.com/s4b/v1/oapi/oAPIDefinitionSet('000D3A57CECB1EED869D37419484D2F90002610')/$value
 # MAGIC [fiori]: https://qas-c4b-bdp.launchpad.cfapps.us21.hana.ondemand.com/site/c4b#C4BOpenAPIDirectory-Display?sap-ui-app-id-hint=saas_approuter_c4b.openAPI.baobcoapi00&/APIServiceSet/000D3A57CECB1EED869D37419484D2F90002610
 # MAGIC [web-editor]: https://editor.swagger.io/
@@ -52,14 +52,28 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -r ../reqs_dbks.txt 
+# MAGIC %pip install -q -r ../reqs_dbks.txt 
 
 # COMMAND ----------
 
-from pyspark.dbutils import DBUtils
 from pyspark.sql import SparkSession
+from pyspark.dbutils import DBUtils
+import subprocess
+import yaml
+
 spark = SparkSession.builder.getOrCreate()
-dbutils = DBUtils(spark)
+dbks_secrets = DBUtils(spark).secrets
+
+with open("../user_databricks.yml", 'r') as _f: 
+    u_dbks = yaml.safe_load(_f)
+
+epicpy_load = {
+    'url'   : 'github.com/Bineo2/data-python-tools.git', 
+    'branch': 'dev-diego', 
+    'token' :  dbks_secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])}
+
+url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
+subprocess.check_call(['pip', 'install', url_call])
 
 # COMMAND ----------
 
@@ -74,38 +88,45 @@ PAGE_MAX     = 200   # Max número de registros (eg. PersonSet) para pedir de un
 from collections import OrderedDict
 from datetime import datetime as dt, timedelta as delta
 from delta.tables import DeltaTable as Δ
+import pandas as pd
 from pyspark.sql import functions as F, types as T, Window as W
 from pytz import timezone
 
 # COMMAND ----------
-from epic_py.delta import EpicDF
+
+from importlib import reload
+import epic_py; reload(epic_py)
+import config ; reload(config)
+
+from epic_py.delta import EpicDF, when_plus
+from epic_py.core_banking import SAPSession
 
 from src import tools
-from src.core_banking import SAPSession
+
 from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP,
-    DATALAKE_PATHS as paths)
+    ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths, 
+    t_agent, t_resources, t_core)
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
 app_environ.sparktransfer_credential()
 
 core_starter = app_environ.prepare_coresession('qas-sap')
-core_session = SAPSession(core_starter)
+core_session = SAPSession(t_core)
 
 slv_path       = paths['abfss'].format('silver', resources['storage'])
 at_datasets    = f"{slv_path}/{paths['datasets']}"  
 at_commissions = f"{slv_path}/{paths['commissions']}/delta"
 
 # Fiserv es el proveedor que maneja estos archivos:  txns, clientes. 
-atptx_loc  = f"{at_datasets}/atpt/delta"
+atptx_loc = f"{at_datasets}/atpt/delta"
 
 
 # COMMAND ----------
 
 # MAGIC %md 
 # MAGIC ## 1. Update Previous Commissions
-# MAGIC 
+# MAGIC
 # MAGIC Estatus en comisiones:   
 # MAGIC `'0.0': '0.0'`    
 # MAGIC `'1'   : 'Creado'`     
@@ -114,7 +135,7 @@ atptx_loc  = f"{at_datasets}/atpt/delta"
 
 # COMMAND ----------
 
-def update_commissions(cmsn_api, at_commissions, cmsn_df=None): 
+def update_commissions(cmsn_api:pd.DataFrame, at_commissions, cmsn_df=None): 
     # Check that is non-empty cmsns_df with
     #     acct_id, ext_id, stats = Fees Uploaded for Postprocessi
     #    (cmsn_df, cmsn_api) = sub_comsns, api_comsns
@@ -161,44 +182,44 @@ summaries = {
     'n_feecalls'   : F.countDistinct('external_id')}
 
 print(f"There are {len(unproc_ids)} external IDs not processed.")
-(spark.read
-    .load(at_commissions)
+(EpicDF(spark, at_commissions)
     .groupBy('status_process', 'status_descr')
-    .agg(*[vv.alias(kk) for kk, vv in summaries.items()])
+    .agg_plus(summaries)
     .orderBy('status_process')
     .show())
 
 # COMMAND ----------
 
-for ii, id_row in enumerate(unproc_ids):
-    print(ii, id_row.external_id)
-    sub_comsns = (spark.read
-        .load(at_commissions)
-        .filter(F.col('external_id') == id_row.external_id))
-    
-    api_comsns = (core_session
-        .verify_commissions(ExternalID=id_row.external_id))
-    
-    if api_comsns.shape[0] == 0: 
-        print(a_row.b_core_acct)
-        continue
+debugging = False
+
+if debugging: 
+    for ii, id_row in enumerate(unproc_ids):
+        print(ii, id_row.external_id)
+        sub_comsns = (EpicDF(spark, at_commissions)
+            .filter(F.col('external_id') == id_row.external_id))
         
-    update_commissions(api_comsns, at_commissions, sub_comsns)
+        api_comsns = (core_session
+            .verify_commissions(ExternalID=id_row.external_id))
+        
+        if api_comsns.shape[0] == 0: 
+            print(a_row.b_core_acct)
+            continue
+            
+        update_commissions(api_comsns, at_commissions, sub_comsns)
 
 # COMMAND ----------
 
 print(f"There are {len(unproc_ids)} external IDs not processed.")
-(spark.read
-    .load(at_commissions)
+(EpicDF(spark, at_commissions)
     .groupBy('status_process', 'status_descr')
-    .agg(*[vv.alias(kk) for kk, vv in summaries.items()])
+    .agg_plus(summaries)
     .orderBy('status_process')
     .show())
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC 
+# MAGIC
 # MAGIC ## 2. Withdrawals Table
 # MAGIC Starting from the transactions universe, consider the ones that are withdrawals.  
 # MAGIC Prepare the corresponging attributes to manage them.  
@@ -208,7 +229,7 @@ print(f"There are {len(unproc_ids)} external IDs not processed.")
 # MAGIC %md 
 # MAGIC Ejemplo de retiro para comprobar que está en ATPT.  
 # MAGIC - `Cuenta`:  `02020000967`
-# MAGIC 
+# MAGIC
 # MAGIC **Nota** Los ATPTs no distinguen diferentes BPAs.   
 # MAGIC O sea, pueden venir cuentas y txns de diferentes de ellos en un mismo archivo. 
 
@@ -290,10 +311,11 @@ pre_commissions = (spark.read
     .withColumnRenamed('transaction_id', 'atpt_mt_ref_nbr'))
 
 commissions = (wdraw_txns
-    .filter(F.col('b_wdraw_is_commissionable') 
-         & (F.col('b_wdraw_commission_status') == 0)
-         & (F.col('b_wdraw_rk_txns') == 1))
-    .filter(wdraw_txns['atpt_mt_posting_date'] >= since_date)
+    .filter_plus(*[
+        F.col('b_wdraw_is_commissionable'), 
+        F.col('b_wdraw_commission_status') == 0, 
+        F.col('b_wdraw_rk_txns') == 1, 
+        F.col('atpt_mt_posting_date') >= since_date])
     .join(pre_commissions, how='anti', on='atpt_mt_ref_nbr'))
 
 commissions.display()
@@ -316,7 +338,7 @@ commissions.display()
 
 # Finalmente la verificación agregaría estos campos. 
 verification_cols = ['status_process', 'status_descr', 'log_msg', 'amount']  
-# POS_FEE is also created afterwards, but we create it artificially in parallel. 
+# POS_FEE is also created afterwards, but we create it artificia0lly in parallel. 
 
 process_df = (core_session
     .process_commissions_atpt(spark, commissions, 
@@ -397,14 +419,14 @@ if debug:
 
 # MAGIC %md 
 # MAGIC # Pruebas 
-# MAGIC 
+# MAGIC
 # MAGIC Pruebas nivel medio técnico.  
 # MAGIC 1.  Los retiros que se hicieron 'funcionalmente' aparecen en el archivo ATPT.  
 # MAGIC 2.  Los retiros que aparecen en ATPT, se clasificaron como `comisionables`/`no-comisionables`.  
 # MAGIC 3.  Los retiros `comisionables` se les aplicó una comisión, y se ve reflejada en el núcleo bancario SAP. 
 # MAGIC 4.  Se actualizó el estatus de la comisión, como cobrada en las tablas del Δ-lake. 
-# MAGIC 
-# MAGIC 
+# MAGIC
+# MAGIC
 # MAGIC Pruebas funcionales.  
 # MAGIC 1.  Sr. A. recibió una notificación después de hacer un retiro del cajero.    
 # MAGIC     a) La notificación decía lo que tiene que decir.   

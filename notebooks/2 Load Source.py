@@ -7,7 +7,7 @@
 # MAGIC * `DAMNA` clientes
 # MAGIC   
 # MAGIC Los Extracts de Fiserv están en [este link][sharepoint].  
-# MAGIC 
+# MAGIC
 # MAGIC [sharepoint]: https://bineomex.sharepoint.com/:x:/r/sites/Ops-DocsValidation/Documentos%20compartidos/2%20CMS-Fiserv/Data%20Extracts.xlsx?d=w10ddf5ab755b4ea28367699379df4cc2&csf=1&web=1&e=e14qAT
 
 # COMMAND ----------
@@ -21,14 +21,28 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -r ../reqs_dbks.txt
+# MAGIC %pip install -q -r ../reqs_dbks.txt
 
 # COMMAND ----------
 
-from pyspark.dbutils import DBUtils
 from pyspark.sql import SparkSession
+from pyspark.dbutils import DBUtils
+import subprocess
+import yaml
+
 spark = SparkSession.builder.getOrCreate()
-dbutils = DBUtils(spark)
+dbks_secrets = DBUtils(spark).secrets
+
+with open("../user_databricks.yml", 'r') as _f: 
+    u_dbks = yaml.safe_load(_f)
+
+epicpy_load = {
+    'url'   : 'github.com/Bineo2/data-python-tools.git', 
+    'branch': 'dev-diego', 
+    'token' :  dbks_secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])}
+
+url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
+subprocess.check_call(['pip', 'install', url_call])
 
 # COMMAND ----------
 
@@ -45,8 +59,9 @@ from src import sftp_sources as sftp; reload(sftp)
 
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, 
-    DATALAKE_PATHS as paths)
-
+    DATALAKE_PATHS as paths, 
+    t_agent, t_resources,
+    CORE_2, CORE_ENV)
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
@@ -57,7 +72,6 @@ local_layouts = "/dbfs/FileStore/transformation-layer/layouts"
 read_from = f"{paths['abfss'].format('bronze', resources['storage'])}/{paths['prepared']}"  
 write_to  = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['datasets']}"  
 
-
 # Se requiere crear esta carpeta si no existe. 
 # makedirs(tmp_layouts)
 
@@ -65,9 +79,9 @@ write_to  = f"{paths['abfss'].format('silver', resources['storage'])}/{paths['da
 
 # MAGIC %md 
 # MAGIC ## Preparación de código  
-# MAGIC 
+# MAGIC
 # MAGIC Definimos llaves claves para leer y guardar archivos.  
-# MAGIC 
+# MAGIC
 # MAGIC La función de los _deltas_ considera los siguientes elementos:  
 # MAGIC     - Se toman los fólders del _storage container_ en donde se depositaron los archivos descomprimidos.  
 # MAGIC     - También utilizamos los archivos de configuración que se guardan en la carpeta local del repositorio.  
@@ -94,38 +108,193 @@ table_keys = {
     'damna' : ['amna_acct', 'rank_acct'], 
     'dambs' : ['ambs_acct', 'rank_acct'], 
     'dambs2': ['ambs_acct', 'rank_acct'], 
-    'dambsc': ['ambs_acct', 'rank_acct']}  
+    'dambsc': ['ambs_acct', 'rank_acct']
+    }  
 
-readies_Δ  = {}
-for a_key, on_cols in table_keys.items(): 
-    in_dir = f"{read_from}/{a_key}" 
-    Δ_path = f"{write_to }/{a_key}/delta"
-    
-    print(a_key)
-    sourcer = sftp.prepare_sourcer(a_key, local_layouts)
-    pre_Δ   = sftp.read_delta_basic(spark, in_dir, Δ_path)  # Si es Δ, utilizas checkpoints.  
-    ref_Δ   = sftp.delta_with_sourcer(pre_Δ, sourcer)
-    
-    if isinstance(on_cols, str): 
-        on_cols = [on_cols]
-    else: 
-        w_rk = (W.partitionBy('file_date', *on_cols[:-1])
-            .orderBy('file_modified'))
-        
-        ref_Δ = (ref_Δ
-            .withColumn(on_cols[-1], F.row_number().over(w_rk)))
-
-    readies_Δ[a_key] = ref_Δ
-    if Δ.isDeltaTable(spark, Δ_path): 
-        utils.upsert_delta(spark, ref_Δ, Δ_path, 
-            'simple', ['file_date', *on_cols])
-    else: 
-        continue
+readies_Δ = {}
+table_keys.keys()
     
 
 # COMMAND ----------
 
-[x.name for x in dbutils.fs.ls('abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/card-management/(datasets|)')]
+a_key = 'atpt'
+on_cols = table_keys[a_key]
+
+in_dir = f"{read_from}/{a_key}" 
+Δ_path = f"{write_to }/{a_key}/delta"
+
+print(a_key)
+sourcer = sftp.prepare_sourcer(a_key, local_layouts)
+pre_Δ   = sftp.read_delta_basic(spark, in_dir, Δ_path)  # Si es Δ, utilizas checkpoints.  
+ref_Δ   = sftp.delta_with_sourcer(pre_Δ, sourcer)
+
+w_rk = (W.partitionBy('file_date', *on_cols[:-1])
+    .orderBy('file_modified'))
+
+ref_Δ = (ref_Δ
+    .withColumn(on_cols[-1], F.row_number().over(w_rk)))
+
+readies_Δ[a_key] = ref_Δ
+if Δ.isDeltaTable(spark, Δ_path): 
+    f"\tmerging Δ-table at {Δ_path}"
+    ref_Δ.upsert_into(Δ_path, ['file_date', *on_cols], 'simple')
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### DAMNA
+
+# COMMAND ----------
+
+a_key = 'damna'
+on_cols = table_keys[a_key]
+
+in_dir = f"{read_from}/{a_key}" 
+Δ_path = f"{write_to }/{a_key}/delta"
+
+print(a_key)
+sourcer = sftp.prepare_sourcer(a_key, local_layouts)
+pre_Δ   = sftp.read_delta_basic(spark, in_dir, Δ_path)  # Si es Δ, utilizas checkpoints.  
+ref_Δ   = sftp.delta_with_sourcer(pre_Δ, sourcer)
+
+w_rk = (W.partitionBy('file_date', *on_cols[:-1])
+    .orderBy('file_modified'))
+
+#ref_Δ = (ref_Δ
+#    .withColumn(on_cols[-1], F.row_number().over(w_rk)))
+
+readies_Δ[a_key] = ref_Δ
+#if Δ.isDeltaTable(spark, Δ_path): 
+    # f"\tmerging Δ-table at {Δ_path}"
+    # ref_Δ.upsert_into(Δ_path, ['file_date', *on_cols], 'simple')
+
+ref_Δ.display()
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ### DAMBS
+# MAGIC
+
+# COMMAND ----------
+
+a_key = 'dambs'
+on_cols = table_keys[a_key]
+
+in_dir = f"{read_from}/{a_key}" 
+Δ_path = f"{write_to }/{a_key}/delta"
+
+print(a_key)
+sourcer = sftp.prepare_sourcer(a_key, local_layouts)
+pre_Δ   = sftp.read_delta_basic(spark, in_dir, Δ_path)  # Si es Δ, utilizas checkpoints.  
+ref_Δ   = sftp.delta_with_sourcer(pre_Δ, sourcer)
+
+w_rk = (W.partitionBy('file_date', *on_cols[:-1])
+    .orderBy('file_modified'))
+
+ref_Δ = (ref_Δ
+    .withColumn(on_cols[-1], F.row_number().over(w_rk)))
+
+readies_Δ[a_key] = ref_Δ
+if Δ.isDeltaTable(spark, Δ_path): 
+    f"\tmerging Δ-table at {Δ_path}"
+    ref_Δ.upsert_into(Δ_path, ['file_date', *on_cols], 'simple')
+
+ref_Δ.display()
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ### ATPTX
+
+# COMMAND ----------
+
+a_key = 'atpt'
+on_cols = table_keys[a_key]
+
+in_dir = f"{read_from}/{a_key}" 
+Δ_path = f"{write_to }/{a_key}/delta"
+
+print(a_key)
+sourcer = sftp.prepare_sourcer(a_key, local_layouts)
+pre_Δ   = sftp.read_delta_basic(spark, in_dir, Δ_path)  # Si es Δ, utilizas checkpoints.  
+ref_Δ   = sftp.delta_with_sourcer(pre_Δ, sourcer)
+
+w_rk = (W.partitionBy('file_date', *on_cols[:-1])
+    .orderBy('file_modified'))
+
+ref_Δ = (ref_Δ
+    .withColumn(on_cols[-1], F.row_number().over(w_rk)))
+
+readies_Δ[a_key] = ref_Δ
+#if Δ.isDeltaTable(spark, Δ_path): 
+    # f"\tmerging Δ-table at {Δ_path}"
+ref_Δ.upsert_into(Δ_path, ['file_date', *on_cols], 'simple')
+
+ref_Δ.display()
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ### DAMBS-2
+
+# COMMAND ----------
+
+a_key = 'dambs2'
+on_cols = table_keys[a_key]
+
+in_dir = f"{read_from}/{a_key}" 
+Δ_path = f"{write_to }/{a_key}/delta"
+
+print(a_key)
+sourcer = sftp.prepare_sourcer(a_key, local_layouts)
+pre_Δ   = sftp.read_delta_basic(spark, in_dir, Δ_path)  # Si es Δ, utilizas checkpoints.  
+ref_Δ   = sftp.delta_with_sourcer(pre_Δ, sourcer)
+
+w_rk = (W.partitionBy('file_date', *on_cols[:-1])
+    .orderBy('file_modified'))
+
+ref_Δ = (ref_Δ
+    .withColumn(on_cols[-1], F.row_number().over(w_rk)))
+
+readies_Δ[a_key] = ref_Δ
+#if Δ.isDeltaTable(spark, Δ_path): 
+    # f"\tmerging Δ-table at {Δ_path}"
+ref_Δ.upsert_into(Δ_path, ['file_date', *on_cols], 'simple')
+
+ref_Δ.display()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### DAMBS-C
+
+# COMMAND ----------
+
+a_key = 'dambsc'
+on_cols = table_keys[a_key]
+
+in_dir = f"{read_from}/{a_key}" 
+Δ_path = f"{write_to }/{a_key}/delta"
+
+print(a_key)
+sourcer = sftp.prepare_sourcer(a_key, local_layouts)
+pre_Δ   = sftp.read_delta_basic(spark, in_dir, Δ_path)  # Si es Δ, utilizas checkpoints.  
+ref_Δ   = sftp.delta_with_sourcer(pre_Δ, sourcer)
+
+w_rk = (W.partitionBy('file_date', *on_cols[:-1])
+    .orderBy('file_modified'))
+
+ref_Δ = (ref_Δ
+    .withColumn(on_cols[-1], F.row_number().over(w_rk)))
+
+readies_Δ[a_key] = ref_Δ
+#if Δ.isDeltaTable(spark, Δ_path): 
+    # f"\tmerging Δ-table at {Δ_path}"
+ref_Δ.upsert_into(Δ_path, ['file_date', *on_cols], 'simple')
+
+ref_Δ.display()
 
 # COMMAND ----------
 
