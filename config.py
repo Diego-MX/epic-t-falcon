@@ -114,15 +114,15 @@ CORE_SETUP = {
 
 CORE_2 = {
     'qas-sap': {
-        'base-url': "https://apiqas.apimanagement.us21.hana.ondemand.com/s4b",
-        'auth-url': "https://apiqas.apimanagement.us21.hana.ondemand.com/oauth2/token", 
+        'base_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/s4b",
+        'auth_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/oauth2/token", 
         'client_id'    : 'core-api-key', 
         'client_secret': 'core-api-secret', 
         'sap_username' : 'core-api-user',
         'sap_password' : 'core-api-password'},
     'prod-sap': {
-        'base-url': "https://sbx-latp-apim.prod.apimanagement.us20.hana.ondemand.com/s4b",
-        'auth-url': "https://latp-apim.prod.apimanagement.us20.hana.ondemand.com/oauth2/token", 
+        'base_url': "https://sbx-latp-apim.prod.apimanagement.us20.hana.ondemand.com/s4b",
+        'auth_url': "https://latp-apim.prod.apimanagement.us20.hana.ondemand.com/oauth2/token", 
         'client_id': 'core-api-key', 
         'client_secret': 'core-api-secret', 
         'sap_username' : 'core-api-user',
@@ -221,7 +221,6 @@ UAT_SPECS = {
         'types': {
             'TransactionType'       : 'string'
         }} }
-
 
 
 class ConfigEnviron():
@@ -386,3 +385,6 @@ CORE_ENV = environ.get('CORE_ENV')
 t_agent = EpicIdentity.create(SERVER, config=SETUP_2[ENV])
 t_resources = t_agent.get_resourcer(RESOURCES_2[ENV])
 
+s_vault = t_resources.get_keyvault()
+
+sap_prep = CORE_2[CORE_ENV]

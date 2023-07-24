@@ -15,6 +15,29 @@
 
 # COMMAND ----------
 
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+import subprocess
+import yaml
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
+# COMMAND ----------
+
+epicpy_load = {
+    'url'   : 'github.com/Bineo2/data-python-tools.git', 
+    'branch': 'dev-diego'}
+
+with open("../user_databricks.yml", 'r') as _f: 
+    u_dbks = yaml.safe_load(_f)
+
+epicpy_load['token'] = dbutils.secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])
+
+url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
+subprocess.check_call(['pip', 'install', url_call])
+
+# COMMAND ----------
+
 from datetime import datetime as dt, date, timedelta as delta
 from collections import OrderedDict
 from pyspark.sql import functions as F, types as T
@@ -22,9 +45,14 @@ from pytz import timezone
 
 # COMMAND ----------
 
+# MAGIC %md 
+# MAGIC ## 0.b Especificar fechas
+
+# COMMAND ----------
+
 now_mx = dt.now(timezone('America/Mexico_City'))
-yday_ish = now_mx.date() - delta(days=1)  # En flujo normal.  Se toma el día de ayer. 
-yday_ish = date(2023, 12, 31)  
+yday_ish = now_mx.date() - delta(days=1)  
+yday_ish = date(2024, 5, 28)   # 4, 9, 27, 28
 
 # ya se hizo un pequeño desorden cuando empezaron a cambiar fechas, y áreas bancarias.  
 which_files = {
@@ -36,17 +64,14 @@ which_files = {
 key_date_ops  = yday_ish
 key_date_spei = yday_ish
 
-
 # COMMAND ----------
 
 from importlib import reload
 import epic_py; reload(epic_py)
+import src; reload(src)
 import config; reload(config)
 
 from epic_py.tools import dirfiles_df
-
-from src import tools; reload(tools)
-from src import utilities; reload(utilities)
 
 from src.tools import write_datalake
 from src.sftp_sources import process_files
@@ -56,10 +81,6 @@ from src.sftp_sources import process_files
 # SFTP_sources : handle project specific materials. 
 # Config       : check with Infrastructure.  
 
-from pyspark.dbutils import DBUtils
-from pyspark.sql import SparkSession
-spark = SparkSession.builder.getOrCreate()
-dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
@@ -628,7 +649,6 @@ if dev:
 # MAGIC ### a. (036) Operativa
 
 # COMMAND ----------
-
 
 dir_036  = f"{at_reports}/operational"
 

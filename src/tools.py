@@ -13,8 +13,6 @@ from pyspark.dbutils import DBUtils
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
 
-from .utilities import file_exists
-
 
 def colsdf_prepare(a_df: pd_DF) -> pd_DF: 
     int_cols = ['From', 'Length', 'fmt_len']
