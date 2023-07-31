@@ -32,7 +32,6 @@
 
 # COMMAND ----------
 
-from pathlib import Path
 from pyspark.dbutils import DBUtils
 from pyspark.sql import SparkSession
 import subprocess
