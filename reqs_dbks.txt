@@ -1,15 +1,12 @@
-pandas
-pydantic
-toolz
-python-dotenv
 
-# Utilities
 azure-identity
 azure-keyvault-secrets
 azure-storage-blob
-
 chardet
-
-
-
+httpx
+pandas
+pydantic
+python-dotenv
+pyyaml
+toolz
 
