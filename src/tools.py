@@ -107,7 +107,9 @@ def write_datalake(a_df: Union[spk_DF, pd_DF, pd_S],
             dbutils.fs.rm(a_path)
         
         pre_path = re.sub(r'\.csv$', '', a_path)
-        a_df.coalesce(1).write.format('csv').save(pre_path)
+        (a_df.coalesce(1).write
+            .format('csv')
+            .save(pre_path))
         
         path_000 = [ff.path for ff in dbutils.fs.ls(pre_path) 
                 if re.match(r'.*000\.csv$', ff.name)][0]
