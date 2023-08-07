@@ -68,6 +68,7 @@ import config;  reload(config)
 
 from epic_py.tools import dirfiles_df
 
+# cambiar a epic-Py mode. 🙏
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 

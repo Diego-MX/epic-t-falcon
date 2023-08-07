@@ -11,7 +11,11 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 0. Preparación código
+# MAGIC ## 0. Preparar código
+
+# COMMAND ----------
+
+#%pip uninstall -y epic-py
 
 # COMMAND ----------
 
@@ -44,14 +48,20 @@ subprocess.check_call(['pip', 'install', url_call])
 
 # COMMAND ----------
 
-now_mx = dt.now(timezone('America/Mexico_City'))
-yday_ish = now_mx.date() - delta(days=1)  
-yday_ish = date(2023, 7, 28)   
+fecha_manual = True
 
-# ya se hizo un pequeño desorden cuando empezaron a cambiar fechas, y áreas bancarias.  
+if fecha_manual:
+    yday_ish = date(2023, 7, 27)   
+    print(f"Revisa la fecha: [{yday_ish.strftime('%d-%b-%Y')}]") 
+else: 
+    now_mx = dt.now(timezone('America/Mexico_City'))
+    yday_ish = now_mx.date() - delta(days=1)  
+
+
+# ya se hizo un pequeño desorden cuando se cambiaron fechas y áreas bancarias.  
 which_files = {
-    'spei-banking'  : {'date': yday_ish, 'key2': 'CC4B3'},  # 'CB15'
-    'spei-ledger'   : {'date': yday_ish, 'key' : '900002'}} # '900002'
+    'spei-banking' : {'date': yday_ish, 'key2': 'S4B1_01'},  # 'CB15'
+    'spei-ledger'  : {'date': yday_ish, 'key' : '900002'}} # '900002'
 
 key_date_ops  = yday_ish
 key_date_spei = yday_ish
@@ -82,9 +92,9 @@ at_ledger  = λ_address('bronze', 'spei-gfb')
 to_reports = λ_address('gold',   'reports2')
 
 print(f"""
-SPEI-C4B    : {at_banking}
-SPEI-GFB    : {at_ledger}
-Reports     : {to_reports}
+SPEI-C4B : {at_banking}
+SPEI-GFB : {at_ledger}
+Reports  : {to_reports}
 """)
 
 
@@ -118,47 +128,43 @@ Reports     : {to_reports}
 
 # COMMAND ----------
 
-# For Subledger
-
-ref_regex = r"(MIFELSPEI|\d+ATP\d)(20\d{6})(\d+)"
-
-spei_gfb = {
-    'base' : OrderedDict({
-        'extra': 'str', 'cep_issuer': 'int', 
-        'account_id': 'long', 'account_digital': 'long', 
+spei_gfb = {  # RECOIF
+    'name': 'spei-ledger', 
+    'alias': 'gfb', 
+    'schema' : OrderedDict({
+        'extra': 'str', 'cep_issuer': 'int_2', 'account_id': 'long', 'account_digital': 'long', 
         'clabe': 'long', 'receiver_channel': 'str', 'receiver_service': 'str', 
         'txn_amount': 'dbl', 'txn_status': 'str', 'rejection_reason': 'str', 
-        'sender_bank': 'str', 'date_added': 'str', 'receiver_name': 'str', 'receiver_account': 'long', 
+        'sender_bank': 'str', 'date_added': 'str', 'receiver_name': 'str', 
+        'receiver_account': 'long', 
         'receiver_clabe': 'long', 'receiver_rfc': 'str', 'concept': 'str', 'reference': 'str', 
-        'tracking_key': 'str', 'uuid': 'str', 'status': 'str'}), 
-    'read': {
-        'track_type'    : F.regexp_extract('tracking_key', ref_regex, 1), 
-        'track_date'    : F.regexp_extract('tracking_key', ref_regex, 2),  #.to_date('yyyyMMdd')
-        'track_num2'    : F.regexp_extract('tracking_key', ref_regex, 3),  #.cast(T.Longtype())
-    },
-    'mod': {
-        'txn_valid'     : F.col('tracking_key').rlike(ref_regex), # Filtrar
-        'ref_num'       : F.col('tracking_key'), # Join
+        'tracking_key': 'str', 'uuid': 'str', 'status': 'str', 'posting_date': 'date'}), 
+    'options': dict(mode='PERMISIVE', sep=';', header=False), 
+    'mutate': {
+        'txn_valid'     : F.lit(True),             
+        'ref_num'       : F.col('tracking_key'),   
         'account_num'   : F.col('account_digital'), 
         'txn_type_code' : F.when(F.col('receiver_service') == 'EMISION SPEI' , '500402')
                            .when(F.col('receiver_service') == 'SPEI RECIBIDO', '550403')
                            .otherwise(F.col('receiver_service')), 
-        'txn_amount'    : F.col('txn_amount'), # Comparar
-        'txn_status'    : F.col('status'), 
-        'txn_date_gfb'  : F.to_date('track_date', 'yyyyMMdd')}, 
-    'post': {
-        'where': ['txn_valid'], 
+        'txn_amount'    : F.col('txn_amount'), 
+        'txn_status'    : F.col('status'),  
+        'txn_date_gfb'  : F.to_date('posting_date', 'yyyy-MM-dd')}, 
+    'match': {
+        'where': [F.col('txn_valid')], 
         'by'   : ['ref_num', 'account_num', 'txn_type_code'], 
         'agg'  : {
+            'gfb_status'  : F.first('txn_status'), 
             'gfb_num_txns': F.count('*'), 
-            'gfb_monto'   : F.round(F.sum('txn_amount'), 2) }}
-}
-
+            'gfb_monto'   : F.round(F.sum('txn_amount'), 2)}}}
+    
 spei_c4b = {
-    'base': OrderedDict({
+    'name': 'spei-banking', 
+    'alias': 'c4b',
+    'schema': OrderedDict({
         'account_c4b': 'str', 'txn_type_code': 'str', 
         'txn_type': 'str', 'txn_postdate': 'ts', 
-        'AMOUNT_LOCAL': 'str', 'AMOUNT_CENTS': 'str',  
+        'amount_local': 'dbl', # 'AMOUNT_CENTS': 'str',  
         # Vienen en formato europeo así que lo separamos y ajustamos. 
         'currency': 'str', 'txn_id': 'str', 
         'type_code': 'int', 'type_name': 'str', 
@@ -175,93 +181,36 @@ spei_c4b = {
         'acct_holder_tax_id': 'str', 'cntr_party_tax_id': 'str', 
         'fee_amount': 'dbl', 'fee_currency': 'str', 
         'vat_amount': 'dbl', 'vat_currency': 'str'}), 
-    'read': {
-        'amount_local' : F.concat_ws('.',  
-                F.regexp_replace(F.col('AMOUNT_LOCAL'), '\.', ''), 
-                F.col('AMOUNT_CENTS')).cast(T.DoubleType()), 
-        'txn_postdate' : F.col('txn_postdate').cast(T.DateType()), 
-        'value_date'   : F.col('value_date').cast(T.DateType()), 
-        'e2e_type'     : F.regexp_extract('end_to_end', ref_regex, 1), 
-        'e2e_date'     : F.regexp_extract('end_to_end', ref_regex, 2),  
-        'e2e_num2'     : F.regexp_extract('end_to_end', ref_regex, 3)}, 
-    'mod': {
-        'txn_valid'      : F.col('end_to_end').rlike(ref_regex)
-                        & (F.col('txn_status') != 'Posting Canceled'), # Filtrar
-        'ref_num'        : F.col('end_to_end'),
-        'account_num'    : F.substring(F.col('account_c4b'), 1, 11).cast(T.LongType()), 
-        'txn_type_code'  : F.col('txn_type_code'),  
-        'txn_amount'     : F.col('amount_local'), # Comparar. 
-        'txn_date'       : F.col('txn_postdate'), 
-        'txn_status'     : F.when(F.col('txn_status') == 'Posted', 'P')
+    'options': dict(mode='PERMISIVE', sep=',', header=False, 
+            dateFormat='d-M-y', timestampFormat='d/M/y H:m:s'), 
+    'mutate': {
+        'txn_postdate'  : F.col('txn_postdate').cast(T.DateType()), 
+        'value_date'    : F.col('value_date').cast(T.DateType()),
+        'txn_valid'     : F.col('txn_status') != 'Posting Canceled',  # Filtrar
+        'ref_num'       : F.col('end_to_end'),
+        'account_num'   : F.substring(F.col('account_c4b'), 1, 11).cast(T.LongType()), 
+        'txn_type_code' : F.col('txn_type_code'),  
+        'txn_amount'    : F.col('amount_local'), # Comparar. 
+        'txn_date'      : F.col('txn_postdate'), 
+        'txn_status'    : F.when(F.col('txn_status') == 'Posted', 'P')
                 .otherwise(F.col('txn_status'))}, 
-    'post': {
-        'where': ['txn_valid'], 
+    'match': {
+        'where': [F.col('txn_valid')], 
         'by'   : ['ref_num', 'account_num', 'txn_type_code'], 
         'agg'  : {
             'c4b_num_txns': F.count('*'), 
             'c4b_monto'   : F.round(F.sum('txn_amount'), 2)}}
 }
 
-
-
-# COMMAND ----------
-
-### Parsing and Schemas.  
-
-# From Columns
-base_cols = {
-    'spei-ledger'  : spei_gfb['base'], 
-    'spei-banking' : spei_c4b['base'], 
-    'spei-banking2': {  # old-ones
+spei_2 = {
+    'schema': {  # old-ones
         'txn_code': 'str', 'txn_date': 'date', 'txn_time': 'str', 
         'txn_amount': 'dbl', 'ref_num': 'str', 'trck_code': 'str', 'sender_account': 'long', 
         'clabe_account': 'long', 'sender_name': 'str', 'sender_id': 'long', 'txn_description': 'str', 
         'receiver_bank_id': 'int', 'receiver_account': 'long', 'receiver_name': 'str', 
-        'txn_geolocation': 'str', 'txn_status': 'int', 'resp_code': 'int'}
+        'txn_geolocation': 'str', 'txn_status': 'int', 'resp_code': 'int'}, 
+    'options': dict(mode='PERMISIVE', sep='|', header=False, dateFormat='d-M-y')
 }
-
-read_cols = {
-    'spei-ledger'  : spei_gfb.get('read', {}), 
-    'spei-banking' : spei_c4b.get('read', {}),     
-}
-
-mod_cols = {
-    'spei-ledger'  : spei_gfb.get('mod', {}), 
-    'spei-banking' : spei_c4b.get('mod', {}), 
-}
-
-
-# General
-tsv_options = {
-    'spei-ledger' : dict([  # GFB
-        ('mode', 'PERMISIVE'), ('sep', ';'), ('header', False)]), 
-    'spei-banking' : dict([  # C4B
-        ('mode', 'PERMISIVE'), ('sep', ','), ('header', False), 
-        ('dateFormat', 'd-M-y'), ('timestampFormat', 'd/M/y H:m:s')]), 
-    'spei-banking2' : dict([ # Este es viejo. 
-        ('mode', 'PERMISIVE'), ('sep', '|'), ('header', False), 
-        ('dateFormat', 'd-M-y')])
-}
-
-schema_types = {
-    'int' : T.IntegerType, 'long': T.LongType,   'ts'   : T.TimestampType, 
-    'str' : T.StringType,  'dbl' : T.DoubleType, 'date' : T.DateType, 
-    'bool': T.BooleanType, 'flt' : T.FloatType,  'null' : T.NullType}
-
-schemas = {
-    'spei-ledger'   : T.StructType([
-            T.StructField(kk, schema_types[vv](), True) 
-            for kk, vv in base_cols['spei-ledger'].items()]), 
-    'spei-banking'  : T.StructType(
-            T.StructField(kk, schema_types[vv](), True) 
-            for kk, vv in base_cols['spei-banking'].items()), 
-}
-
-renamers = {
-    'spei-ledger'   : [kk for kk in base_cols['spei-ledger']], 
-    'spei-banking'  : [kk for kk in base_cols['spei-banking']], 
-}
-
 
 # COMMAND ----------
 
@@ -285,7 +234,6 @@ since_when = yday_ish - delta(5)
 pre_files_1   = dirfiles_df(at_ledger, spark)
 speigfb_files = process_files(pre_files_1, 'spei-ledger')
 print(which_files['spei-ledger'])
-speigfb_files.sort_values('date', ascending=False).query(f"date >= '{since_when}'")
 
 
 # COMMAND ----------
@@ -349,48 +297,10 @@ pre_files_0.sort_values('date', ascending=False).query(f"date >= '{since_when}'"
 
 # COMMAND ----------
 
-def read_source_table(src_key, dir_df, file_keys, output=None, verbose=False): 
-    q_str = ' & '.join(f"({k} == '{v}')" 
-        for k, v in file_keys.items())
-    
-    if verbose: 
-        print(q_str)
+from importlib import reload
+from src import conciliation; reload(conciliation)
 
-    path_df = dir_df.query(q_str)
-    if path_df.shape[0] != 1: 
-        print(f"File keys match is not unique.")
-        return None
-    
-    src_path = path_df['path'].iloc[0]        
-
-    if output == 0: 
-        table_0 = (spark.read.format('text')
-            .load(src_path))
-        return table_0
-        
-    table_0 = EpicDF(spark
-            .read.format('csv')
-            .options(**tsv_options[src_key])
-            .schema(schemas[src_key])
-            .load(src_path))
-    
-    table_1 = table_0.select(*renamers[src_key])
-    
-    trim_str = {a_col: F.trim(a_col) 
-        for a_col, a_type in base_cols[src_key].items() if a_type == 'str'}
-    table_11 = table_1.with_column_plus(trim_str)
-    
-    if output == 1: 
-        return table_11
-    
-    table_2 = table_11.with_column_plus(read_cols[src_key])
-    if output == 2: 
-        return table_2
-    
-    table_3 = table_2.with_column_plus(mod_cols[src_key])
-    if output == 3 or output is None: 
-        return table_3
-
+from src.conciliation import Sourcer, Conciliator as conciliate, get_source_path
 
 # COMMAND ----------
 
@@ -399,18 +309,17 @@ def read_source_table(src_key, dir_df, file_keys, output=None, verbose=False):
 
 # COMMAND ----------
 
-speigfb_tbl = read_source_table('spei-ledger', speigfb_files, which_files['spei-ledger'])
+speigfb_files.sort_values('date', ascending=False)
 
-if speigfb_tbl is not None: 
-    speigfb_grp = (speigfb_tbl
-        .filter(F.col('txn_valid'))
-        .groupby('ref_num', 'account_num', 'txn_type_code')
-        .agg(F.count('*').alias('gfb_num_txns'), 
-             F.round(F.sum('txn_amount'), 0).alias('gfb_monto')))
+# COMMAND ----------
 
-    speigfb_tbl.display()
-else: 
-    speigfb_grp = None
+speigfb_path = get_source_path(speigfb_files, which_files['spei-ledger'])
+
+gfb_src  = Sourcer(speigfb_path, **spei_gfb)
+gfb_prep = gfb_src.start_data(spark)
+gfb_data = gfb_src.setup_data(gfb_prep)
+
+gfb_data.display()
 
 
 # COMMAND ----------
@@ -420,18 +329,17 @@ else:
 
 # COMMAND ----------
 
-speic4b_tbl = read_source_table('spei-banking', speic4b_files, which_files['spei-banking'])
+speic4b_files.sort_values('date')
 
-if speic4b_tbl is not None: 
-    speic4b_grp = (speic4b_tbl
-        .filter(F.col('txn_valid'))
-        .groupby('ref_num', 'account_num', 'txn_type_code')
-        .agg(F.count('*').alias('c4b_num_txns'), 
-             F.round(F.sum('txn_amount'), 0).alias('c4b_monto')))
+# COMMAND ----------
 
-    speic4b_tbl.display()
-else: 
-    speic4b_grp = None
+speic4b_path = get_source_path(speic4b_files, which_files['spei-banking'])
+
+c4b_src  = Sourcer(speic4b_path, **spei_c4b)
+c4b_prep = c4b_src.start_data(spark)
+c4b_data = c4b_src.setup_data(c4b_prep)
+
+c4b_data.display()
 
 # COMMAND ----------
 
@@ -448,46 +356,29 @@ else:
 # write_063 = True
 dir_063 = f"{to_reports}/electronic-transfers/"
 
-try: 
-    base_063 = (speic4b_grp
-        .join(speigfb_grp, how='full', on=['ref_num', 'account_num', 'txn_type_code'])
-        .withColumn('check_key', 
-            F.when((F.col('gfb_num_txns') == F.col('c4b_num_txns')) 
-                &  (F.col('gfb_monto')    == F.col('c4b_monto')), 'valida')
-             .when((F.col('gfb_num_txns') == 0) | (F.col('gfb_num_txns').isNull()), 'gfb')
-             .when((F.col('c4b_num_txns') == 0) | (F.col('c4b_num_txns').isNull()), 'c4b')
-             .otherwise('indeterminada')))
+check_txns = {
+    'valida': (F.col('gfb_num_txns') == F.col('c4b_num_txns')) 
+            & (F.col('gfb_monto'   ) == F.col('c4b_monto')), 
+    'gfb'   : (F.col('gfb_num_txns') == 0) | (F.col('gfb_num_txns').isNull()), 
+    'c4b'   : (F.col('c4b_num_txns') == 0) | (F.col('c4b_num_txns').isNull()), 
+    'indeterminada': None}
 
-    discrp_063 = (base_063
-        .filter(F.col('check_key') != 'valida'))
+report_063 = conciliate(gfb_src, c4b_src, check_txns)
+base_063   = report_063.base_match(gfb_data, c4b_data)
+diffs_063  = report_063.filter_checks(base_063, '~valida')
+gfb_063    = report_063.filter_checks(base_063, ['gfb', 'indeterminada'])
+c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
-    gfb_063 = (base_063
-        .filter(F.col('check_key').isin(['gfb', 'indeterminada']))
-        .join(speigfb_tbl, how='left', 
-            on=['ref_num', 'account_num', 'txn_type_code']))
+write_datalake(base_063, spark=spark, overwrite=True, 
+        a_path=f"{dir_063}/compare/{key_date_ops}_063_comparativo.csv")
+write_datalake(diffs_063, spark=spark, overwrite=True, 
+        a_path=f"{dir_063}/discrepancies/{key_date_ops}_063_discrepancias.csv")
+write_datalake(gfb_063, spark=spark, overwrite=True,
+        a_path=f"{dir_063}/subledger/{key_date_ops}_063_gfb.csv")
+write_datalake(c4b_063, spark=spark, overwrite=True,
+        a_path=f"{dir_063}/cloud-banking/{key_date_ops}_063_c4b.csv")
 
-    c4b_063 = (base_063
-        .filter(F.col('check_key').isin(['c4b', 'indeterminada']))
-        .join(speigfb_tbl, how='left', 
-            on=['ref_num', 'account_num', 'txn_type_code']))
-
-    write_datalake(discrp_063, spark=spark, 
-            a_path=f"{dir_063}/compare/{key_date_spei}_063_comparativo.csv")
-    write_datalake(discrp_063, spark=spark, 
-            a_path=f"{dir_063}/discrepancies/{key_date_spei}_063_discrepancias.csv")
-    write_datalake(gfb_063, spark=spark, 
-            a_path=f"{dir_063}/financial/{key_date_spei}_063_spei-gfb.csv")
-    write_datalake(c4b_063, spark=spark, 
-            a_path=f"{dir_063}/cloud-banking/{key_date_spei}_063_spei-c4b.csv")
-
-except:
-    base_063 = None
-
-# COMMAND ----------
-
-print(f"""
-    Reports: {to_reports}
-    DIR_063: {dir_063}""")
+base_063.display()
 
 # COMMAND ----------
 
@@ -504,12 +395,12 @@ from json import dumps
 dumps2 = lambda xx: dumps(xx, default=str)
 
 for kk, vv in which_files.items(): 
-    print(f"{kk}\t:{dumps2(vv)}")
+    print(f"{kk}: {dumps2(vv)}")
 
-if speigfb_grp is None: 
+if gfb_data is None: 
     print(f"No se encontró SPEI-GFB correspondiente a {dumps2(which_files['spei-ledger'])}.")
 
-if speic4b_grp is None: 
+if c4b_data is None: 
     print(f"No se encontró SPEI-C4B correspondiente a {dumps2(which_files['spei-banking'])}.")
 
 if base_063 is None: 

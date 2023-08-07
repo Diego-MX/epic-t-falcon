@@ -80,7 +80,7 @@ t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')
     'abfss', 'storage', container=ctner, blob_path=paths[p_key]))
 
 at_conciliations = λ_address('raw', 'conciliations')
-to_reports       = λ_address('gold',   'reports2')
+to_reports       = λ_address('gold','reports2')
 
 # COMMAND ----------
 
@@ -112,18 +112,22 @@ to_reports       = λ_address('gold',   'reports2')
 
 # COMMAND ----------
 
-# For Subledger
 
 ops_fpsl = {
-    'base' : OrderedDict({ 
+    'name': 'subledger',
+    'alias': 'fpsl',  
+    'options': dict([
+        ('mode', 'PERMISIVE'), 
+        ('sep', '|'), ('header', True), ('nullValue', 'null'), 
+        ('dateFormat', 'd.M.y'), ('timestampFormat', 'd.M.y H:m:s')]),
+    'schema' : OrderedDict({ 
         'C55POSTD' : 'date', 'C55YEAR'    : 'int',
         'C35TRXTYP': 'str' , 'C55CONTID'  : 'str',
         'C11PRDCTR': 'str' , 'K5SAMLOC'   : 'str',  
         'LOC_CURR' : 'str' , 'IGL_ACCOUNT': 'long'}), 
-    'read' : {
+    'mutate' : {
         'K5SAMLOC' : (F.regexp_replace(F.col('K5SAMLOC'), r"(\-?)([0-9\.])(\-?)", "$3$1$2")
-                       .cast(T.DoubleType()))}, 
-    'mod' : {
+                       .cast(T.DoubleType())), 
         'txn_valid'   : F.col('C11PRDCTR').isNotNull() 
                       & F.col('C11PRDCTR').startswith('EPC') 
                       &~F.col('C35TRXTYP').startswith('S'), 
@@ -132,8 +136,8 @@ ops_fpsl = {
         'moneda'      : F.col('LOC_CURR'), 
         'monto_txn'   : F.col('K5SAMLOC'),     # Suma y compara. 
         'cuenta_fpsl' : F.col('IGL_ACCOUNT')}, # Referencia extra, asociada a NUM_CUENTA.  
-    'post': {
-        'where': ['txn_valid'], 
+    'match': {
+        'where': [F.col('txn_valid')], 
         'by'   : ['num_cuenta', 'clave_txn', 'moneda'], 
         'agg'  : {
             'fpsl_num_txns': F.count('*'), 
@@ -141,7 +145,13 @@ ops_fpsl = {
 }
 
 ops_c4b = {
-    'base' : OrderedDict({
+    'name': 'cloud-banking',
+    'alias': 'c4b',  
+    'options': dict([
+        ('mode', 'PERMISIVE'), 
+        ('sep', '|'), ('header', True), ('nullValue', 'null'), 
+        ('dateFormat', 'd.M.y'), ('timestampFormat', 'd.M.y H:m:s')]), 
+    'schema' : OrderedDict({
         'ACCOUNTID': 'str', 'TRANSACTIONTYPENAME': 'str', 'ACCOUNTHOLDERID': 'long', 
         'POSTINGDATE':'date', 'AMOUNT': 'dbl', 'CURRENCY': 'str', 
         'VALUEDATE': 'date', 'STATUSNAME': 'str', 'COUNTERPARTYACCOUNTHOLDER': 'str', 
@@ -160,69 +170,19 @@ ops_c4b = {
         'CANCELLATIONENTRYREFERENCE': 'str', 'PAYMENTNOTES': 'str', 
         'CREATIONDATETIME': 'ts', 'CHANGEDATETIME': 'ts', 'RELEASEDATETIME': 'ts',
         'CHANGEUSER': 'str', 'RELEASEUSER': 'str', 'COUNTER': 'int'}), 
-    'mod': {
+    'mutate': {
         'txn_valid'   : F.lit(True),  # Filtrar
         'num_cuenta'  : F.split(F.col('ACCOUNTID'), '-')[0], # JOIN
         'clave_txn'   : F.col('TRANSACTIONTYPECODE'),
         'moneda'      : F.col('CURRENCY'), 
         'monto_txn'   : F.col('AMOUNT'),  # Suma y compara
         'tipo_txn'    : F.col('TYPENAME')},  # Referencia, asociada a CLAVE_TXN.   
-    'post': {
-        'where': ['txn_valid'], 
+    'match': {
+        'where': [F.col('txn_valid')], 
         'by'   : ['num_cuenta', 'clave_txn', 'moneda'], 
         'agg'  : {
             'c4b_num_txns': F.count('*'), 
             'c4b_monto'   : F.round(F.sum('monto_txn'), 2)}}
-}
-
-
-# COMMAND ----------
-
-### Parsing and Schemas.  
-
-# From Columns
-base_cols = {
-    'subledger'    : ops_fpsl['base'], 
-    'cloud-banking': ops_c4b ['base']}
-
-read_cols = {
-    'subledger'    : ops_fpsl.get('read', {}), 
-    'cloud-banking': ops_c4b.get ('read', {})}
-
-mod_cols = {
-    'subledger'    : ops_fpsl.get('mod', {}), 
-    'cloud-banking': ops_c4b.get ('mod', {})}
-
-
-# General
-tsv_options = {
-    'subledger' : dict([
-        ('mode', 'PERMISIVE'), 
-        ('sep', '|'), ('header', True), ('nullValue', 'null'), 
-        ('dateFormat', 'd.M.y'), ('timestampFormat', 'd.M.y H:m:s')]), 
-    'cloud-banking' : dict([
-        ('mode', 'PERMISIVE'), 
-        ('sep', '|'), ('header', True), ('nullValue', 'null'), 
-        ('dateFormat', 'd.M.y'), ('timestampFormat', 'd.M.y H:m:s')]),
-}
-
-schema_types = {
-    'int' : T.IntegerType, 'long': T.LongType,   'ts'   : T.TimestampType, 
-    'str' : T.StringType,  'dbl' : T.DoubleType, 'date' : T.DateType, 
-    'bool': T.BooleanType, 'flt' : T.FloatType,  'null' : T.NullType}
-
-schemas = {
-    'subledger'     : T.StructType([
-            T.StructField(f"/BA1/{kk}", schema_types[vv](), True) 
-            for kk, vv in base_cols['subledger'].items()]), 
-    'cloud-banking' : T.StructType([
-            T.StructField(kk, schema_types[vv](), True) 
-            for kk, vv in base_cols['cloud-banking'].items()]), 
-}
-
-renamers = {
-    'subledger'     : [F.col(f"/BA1/{kk}").alias(kk) for kk in base_cols['subledger']], 
-    'cloud-banking' : [kk for kk in base_cols['cloud-banking']], 
 }
 
 
@@ -260,6 +220,13 @@ c4b_files.sort_values('date', ascending=False).query(f"date >= '{since_when}'")
 
 # COMMAND ----------
 
+from importlib import reload
+from src import conciliation; reload(conciliation)
+from src.conciliation import Sourcer, Conciliator as conciliate, get_source_path
+
+
+# COMMAND ----------
+
 # MAGIC %md  
 # MAGIC
 # MAGIC Utilizamos una llave general de fecha `key_date` para leer los archivos de las 4 fuentes.  
@@ -270,72 +237,23 @@ c4b_files.sort_values('date', ascending=False).query(f"date >= '{since_when}'")
 
 # COMMAND ----------
 
-def read_source_table(src_key, dir_df, file_keys, output=None, verbose=False): 
-    q_str = ' & '.join(f"({k} == '{v}')" 
-        for k, v in file_keys.items())
-    
-    if verbose: 
-        print(q_str)
-
-    path_df = dir_df.query(q_str)
-    if path_df.shape[0] != 1: 
-        print(f"File keys match is not unique.")
-        return None
-    
-    src_path = path_df['path'].iloc[0]        
-
-    if output == 0: 
-        table_0 = (spark.read.format('text')
-            .load(src_path))
-        return table_0
-        
-    table_0 = EpicDF(spark
-            .read.format('csv')
-            .options(**tsv_options[src_key])
-            .schema(schemas[src_key])
-            .load(src_path))
-    
-    table_1 = table_0.select(*renamers[src_key])
-    
-    trim_str = {a_col: F.trim(a_col) 
-        for a_col, a_type in base_cols[src_key].items() if a_type == 'str'}
-    table_11 = table_1.with_column_plus(trim_str)
-    
-    if output == 1: 
-        return table_11
-    
-    table_2 = table_11.with_column_plus(read_cols[src_key])
-    if output == 2: 
-        return table_2
-    
-    table_3 = table_2.with_column_plus(mod_cols[src_key])
-    if output == 3 or output is None: 
-        return table_3
-
-
-# COMMAND ----------
-
 # MAGIC %md
 # MAGIC ### a. Subledger (FPSL)
 
 # COMMAND ----------
 
-# Columnas: [txn_valid, num_cuenta, cuenta_fpsl, clave_trxn, moneda, monto_trxn]
 
-ldgr_tbl = read_source_table('subledger', ldgr_files, which_files['subledger'])
+fpsl_path = get_source_path(fpsl_files, which_files['subledger'])
 
-if ldgr_tbl is not None: 
-    ldgr_grp = (ldgr_tbl
-        .filter(F.col('txn_valid'))
-        .fillna(0, subset='monto_txn')
-        .groupby('num_cuenta', 'clave_txn', 'moneda', 
-                 'cuenta_fpsl') # Esta columna es de referencia, supuestamente 1-a-1 con NUM_CUENTA. 
-        .agg(F.count('*').alias('fpsl_num_txns'), 
-             F.round(F.sum(F.col('monto_txn')), 2).alias('fpsl_monto'))) 
-    
-    ldgr_tbl.display()
-else: 
-    ldgr_grp = None
+try: 
+    fpsl_src = Sourcer(fpsl_path, **ops_fpsl)
+    fpsl_prep = fpsl_src.start_data(spark)
+    fpsl_data = fpsl_src.setup_data(fpsl_prep)
+
+    fpsl_data.display()
+except: 
+    fpsl_data = None
+
 
 # COMMAND ----------
 
@@ -344,21 +262,17 @@ else:
 
 # COMMAND ----------
 
-c4b_tbl = read_source_table('cloud-banking', c4b_files, 
-        which_files['cloud-banking'], verbose=True)
 
-if c4b_tbl is not None: 
-    c4b_grp = (c4b_tbl
-        .filter(F.col('txn_valid'))  
-        .fillna(0, subset='monto_txn')
-        .groupby('num_cuenta', 'clave_txn', 'moneda', 
-                 'tipo_txn')  # Columna de referencia, se asume 1-a-1 con TIPO_TRXN
-        .agg(F.count('*').alias('c4b_num_txns'), 
-             F.round(F.sum(F.col('monto_txn')), 2).alias('c4b_monto'))) 
+c4b_path = get_source_path(c4b_files, which_files['cloud-banking'])
 
-    c4b_grp.display()
-else: 
-    c4b_grp = None
+try: 
+    c4b_src = Sourcer(c4b_path, **ldgr_c4b)
+    c4b_prep = c4b_src.start_data(spark)
+    c4b_data = c4b_src.setup_data(c4b_prep)
+
+    c4b_data.display()
+except: 
+    c4b_data = None
 
 
 # COMMAND ----------
@@ -375,44 +289,33 @@ else:
 
 dir_036  = f"{to_reports}/operational"
 
-try:
-    base_036 = (c4b_grp
-        .join(ldgr_grp, how='full', on=['num_cuenta', 'clave_txn', 'moneda'])
-        .withColumn('check_key', 
-            F.when((F.col('fpsl_num_txns') == F.col('c4b_num_txns')) 
-                 & (F.col('fpsl_monto') + F.col('c4b_monto') == 0), 'valida')
-             .when((F.col('fpsl_num_txns') == F.col('c4b_num_txns')) 
-                 & (F.col('fpsl_monto') == F.col('c4b_monto')),     'opuesta')
-             .when((F.col( 'c4b_num_txns') == 0) | (F.col( 'c4b_num_txns').isNull()), 'c4b')
-             .when((F.col('fpsl_num_txns') == 0) | (F.col('fpsl_num_txns').isNull()), 'fpsl')
-             .otherwise('indeterminada')))
+check_txns = {
+    'valida' : (F.col('fpsl_num_txns') == F.col('c4b_num_txns')) 
+                & (F.col('fpsl_monto'   )== -F.col('c4b_monto')), 
+    'opuesta': (F.col('fpsl_num_txns') == F.col('c4b_num_txns')) 
+                & (F.col('fpsl_monto'   ) == F.col('c4b_monto')), 
+    'fpsl'   : (F.col('fpsl_num_txns') == 0) | (F.col('fpsl_num_txns').isNull()), 
+    'c4b'    : (F.col( 'c4b_num_txns') == 0) | (F.col( 'c4b_num_txns').isNull()), 
+    'indeterminada': None}
 
-    discrp_036 = (base_036
-        .filter(F.col('check_key') != 'valida'))
+report_036 = conciliate(fpsl_src, c4b_src, check_txns)
+base_036   = report_036.base_match(fpsl_data, c4b_data)
+diffs_036  = report_036.filter_checks(base_036, '~valida')
+fpsl_036   = report_036.filter_checks(base_036, ['fpsl', 'indeterminada'])
+c4b_036    = report_036.filter_checks(base_036, ['c4b', 'indeterminada'])
 
-    fpsl_036 = (base_036
-        .filter(F.col('check_key').isin(['fpsl', 'indeterinada'])) 
-        .join(ldgr_tbl, how='left', 
-            on=['num_cuenta', 'clave_txn', 'moneda', 'cuenta_fpsl']))
 
-    c4b_036 = (base_036
-        .filter(F.col('check_key').isin(['c4b', 'indeterminada']))
-        .join(how='left', on=['num_cuenta', 'clave_txn', 'moneda', 'tipo_txn'], 
-            other=c4b_tbl))
-    
-    write_datalake(base_036, spark=spark, overwrite=True, 
-            a_path=f"{dir_036}/compare/{key_date_ops}_036_comparativo.csv")
-    write_datalake(discrp_036, spark=spark, overwrite=True, 
-            a_path=f"{dir_036}/discrepancies/{key_date_ops}_036_discrepancias.csv")
-    write_datalake(fpsl_036, spark=spark, overwrite=True,
-            a_path=f"{dir_036}/subledger/{key_date_ops}_036_fpsl.csv")
-    write_datalake(c4b_036, spark=spark, overwrite=True,
-            a_path=f"{dir_036}/cloud-banking/{key_date_ops}_036_c4b.csv")
+write_datalake(base_036, spark=spark, overwrite=True, 
+    a_path=f"{dir_036}/compare/{key_date_ops}_036_comparativo.csv")
+write_datalake(discrp_036, spark=spark, overwrite=True, 
+    a_path=f"{dir_036}/discrepancies/{key_date_ops}_036_discrepancias.csv")
+write_datalake(fpsl_036, spark=spark, overwrite=True,
+    a_path=f"{dir_036}/subledger/{key_date_ops}_036_fpsl.csv")
+write_datalake(c4b_036, spark=spark, overwrite=True,
+    a_path=f"{dir_036}/cloud-banking/{key_date_ops}_036_c4b.csv")
 
-    base_036.display()   
-except Exception as expt: 
-    print(str(expt))
-    base_036 = None
+base_036.display()   
+
 
 # COMMAND ----------
 

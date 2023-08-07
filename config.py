@@ -42,8 +42,28 @@ RESOURCES_2 = {
         'storage' : 'stlakehyliaqas', 
         'keyvault': 'kv-cx-data-qas'}, 
     'stg': {}, 
-    'prd': {}, 
+    'prd': {
+        'storage' : 'stlakehyliaprd', 
+        'keyvault': 'kv-cx-data-prd'
+    }, 
     'drp': {}
+}
+
+CORE_2 = {
+    'qas-sap': {
+        'base_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/s4b",
+        'auth_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/oauth2/token", 
+        'client_id'    : 'core-api-key', 
+        'client_secret': 'core-api-secret', 
+        'sap_username' : 'core-api-user',
+        'sap_password' : 'core-api-password'},
+    'prod-sap': {
+        'base_url': "https://sbx-latp-apim.prod.apimanagement.us20.hana.ondemand.com/s4b",
+        'auth_url': "https://latp-apim.prod.apimanagement.us20.hana.ondemand.com/oauth2/token", 
+        'client_id': 'core-api-key', 
+        'client_secret': 'core-api-secret', 
+        'sap_username' : 'core-api-user',
+        'sap_password' : 'core-api-password'},
 }
 
 
@@ -112,21 +132,20 @@ CORE_SETUP = {
                 'password': (1, 'core-api-password')} } } }
 
 
-CORE_2 = {
-    'qas-sap': {
-        'base_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/s4b",
-        'auth_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/oauth2/token", 
-        'client_id'    : 'core-api-key', 
-        'client_secret': 'core-api-secret', 
-        'sap_username' : 'core-api-user',
-        'sap_password' : 'core-api-password'},
-    'prod-sap': {
-        'base_url': "https://sbx-latp-apim.prod.apimanagement.us20.hana.ondemand.com/s4b",
-        'auth_url': "https://latp-apim.prod.apimanagement.us20.hana.ondemand.com/oauth2/token", 
-        'client_id': 'core-api-key', 
-        'client_secret': 'core-api-secret', 
-        'sap_username' : 'core-api-user',
-        'sap_password' : 'core-api-password'},
+BLOB_PATHS = {
+    #'btp'          : "ops/fraude/bronze/btp",                
+    #'spei'         : "ops/transactions/spei",                 
+    #'spei2'        : "ops/fraude/bronze/spei",                
+    'spei-gfb'     : "ops/core-banking/conciliations/recoif", 
+    'spei-c4b'     : "ops/core-banking/conciliations/spei", 
+    #'from-cms'     : "ops/regulatory/card-management/transformation-layer",   
+    #'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready", # Extraer y descomprimir
+    #'reports'      : "ops/regulatory/transformation-layer",  # R2422, SISPAGOS,
+    'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.  
+    #'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
+    #'withdrawals'  : "ops/account-management/withdrawals",   # todos los retiros
+    #'commissions'  : "ops/account-management/commissions",   # retiros de cajeros
+    'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI. 
 }
 
 # Env-independent Usage Variables. 
@@ -384,7 +403,3 @@ CORE_ENV = environ.get('CORE_ENV')
 
 t_agent = EpicIdentity.create(SERVER, config=SETUP_2[ENV])
 t_resources = t_agent.get_resourcer(RESOURCES_2[ENV])
-
-s_vault = t_resources.get_keyvault()
-
-sap_prep = CORE_2[CORE_ENV]

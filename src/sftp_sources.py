@@ -87,7 +87,6 @@ def update_sourcers(blobber, blob_dir, trgt_dir):
     print("Updating sources successful.")
 
 
-
 meta_cols = [('_metadata.file_name', 'file_path'), 
              ('_metadata.file_modification_time', 'file_modified')]
 
