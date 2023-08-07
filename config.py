@@ -43,7 +43,43 @@ RESOURCES_2 = {
         'keyvault': 'kv-cx-data-qas'}, 
     'stg': {}, 
     'prd': {}, 
-    'drp': {}
+    'drp': {
+        'storage': 'stlakehyliaprd', 
+        'keyvault': 'kv-cx-data-prd'}}
+
+
+BLOB_PATHS_2 = {
+    #'btp'          : "ops/fraude/bronze/btp",                # ¿?
+    #'spei'         : "ops/transactions/spei",                # ¿?
+    #'spei2'        : "ops/fraude/bronze/spei",               # SPEI (original y conciliación)
+    'spei-gfb'     : "ops/core-banking/conciliations/recoif", # SPEI conciliación II. 
+    'spei-c4b'     : "ops/core-banking/conciliations/spei", 
+    'from-cms'     : "ops/regulatory/card-management/transformation-layer",  
+    'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready",  # Extraer y descomprimir
+    'reports'      : "ops/regulatory/transformation-layer",   # R2422, SISPAGOS,
+    'reports2'     : "ops/regulatory/conciliations",          # Ya no me acuerdo de qué es.  
+    #'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
+    #'withdrawals'  : "ops/account-management/withdrawals",   # todos los retiros
+    #'commissions'  : "ops/account-management/commissions",   # retiros de cajeros
+    'conciliations': "ops/core-banking/conciliations"         # conciliación operativa y de SPEI. 
+}
+
+
+CORE_2 = {
+    'qas-sap': {
+        'base_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/s4b",
+        'auth_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/oauth2/token", 
+        'client_id'    : 'core-api-key', 
+        'client_secret': 'core-api-secret', 
+        'sap_username' : 'core-api-user',
+        'sap_password' : 'core-api-password'},
+    'prod-sap': {
+        'base_url': "https://sbx-latp-apim.prod.apimanagement.us20.hana.ondemand.com/s4b",
+        'auth_url': "https://latp-apim.prod.apimanagement.us20.hana.ondemand.com/oauth2/token", 
+        'client_id': 'core-api-key', 
+        'client_secret': 'core-api-secret', 
+        'sap_username' : 'core-api-user',
+        'sap_password' : 'core-api-password'},
 }
 
 
@@ -111,23 +147,6 @@ CORE_SETUP = {
                 'username': (1, 'core-api-user'), 
                 'password': (1, 'core-api-password')} } } }
 
-
-CORE_2 = {
-    'qas-sap': {
-        'base_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/s4b",
-        'auth_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/oauth2/token", 
-        'client_id'    : 'core-api-key', 
-        'client_secret': 'core-api-secret', 
-        'sap_username' : 'core-api-user',
-        'sap_password' : 'core-api-password'},
-    'prod-sap': {
-        'base_url': "https://sbx-latp-apim.prod.apimanagement.us20.hana.ondemand.com/s4b",
-        'auth_url': "https://latp-apim.prod.apimanagement.us20.hana.ondemand.com/oauth2/token", 
-        'client_id': 'core-api-key', 
-        'client_secret': 'core-api-secret', 
-        'sap_username' : 'core-api-user',
-        'sap_password' : 'core-api-password'},
-}
 
 # Env-independent Usage Variables. 
 
