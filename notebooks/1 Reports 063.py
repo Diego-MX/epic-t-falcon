@@ -129,8 +129,9 @@ Reports  : {to_reports}
 # COMMAND ----------
 
 spei_gfb = {  # RECOIF
-    'name': 'spei-ledger', 
+    'name': 'spei-subledger', 
     'alias': 'gfb', 
+    'options': dict(mode='PERMISIVE', sep=';', header=False), 
     'schema' : OrderedDict({
         'extra': 'str', 'cep_issuer': 'int_2', 'account_id': 'long', 'account_digital': 'long', 
         'clabe': 'long', 'receiver_channel': 'str', 'receiver_service': 'str', 
@@ -139,7 +140,6 @@ spei_gfb = {  # RECOIF
         'receiver_account': 'long', 
         'receiver_clabe': 'long', 'receiver_rfc': 'str', 'concept': 'str', 'reference': 'str', 
         'tracking_key': 'str', 'uuid': 'str', 'status': 'str', 'posting_date': 'date'}), 
-    'options': dict(mode='PERMISIVE', sep=';', header=False), 
     'mutate': {
         'txn_valid'     : F.lit(True),             
         'ref_num'       : F.col('tracking_key'),   
@@ -160,7 +160,9 @@ spei_gfb = {  # RECOIF
     
 spei_c4b = {
     'name': 'spei-banking', 
-    'alias': 'c4b',
+    'alias': 'c4b', 
+    'options': dict(mode='PERMISIVE', sep=',', header=False, 
+            dateFormat='d-M-y', timestampFormat='d/M/y H:m:s'), 
     'schema': OrderedDict({
         'account_c4b': 'str', 'txn_type_code': 'str', 
         'txn_type': 'str', 'txn_postdate': 'ts', 
@@ -181,18 +183,16 @@ spei_c4b = {
         'acct_holder_tax_id': 'str', 'cntr_party_tax_id': 'str', 
         'fee_amount': 'dbl', 'fee_currency': 'str', 
         'vat_amount': 'dbl', 'vat_currency': 'str'}), 
-    'options': dict(mode='PERMISIVE', sep=',', header=False, 
-            dateFormat='d-M-y', timestampFormat='d/M/y H:m:s'), 
     'mutate': {
-        'txn_postdate'  : F.col('txn_postdate').cast(T.DateType()), 
-        'value_date'    : F.col('value_date').cast(T.DateType()),
-        'txn_valid'     : F.col('txn_status') != 'Posting Canceled',  # Filtrar
-        'ref_num'       : F.col('end_to_end'),
-        'account_num'   : F.substring(F.col('account_c4b'), 1, 11).cast(T.LongType()), 
-        'txn_type_code' : F.col('txn_type_code'),  
-        'txn_amount'    : F.col('amount_local'), # Comparar. 
-        'txn_date'      : F.col('txn_postdate'), 
-        'txn_status'    : F.when(F.col('txn_status') == 'Posted', 'P')
+        'txn_postdate' : F.col('txn_postdate').cast('date'), 
+        'value_date'   : F.col('value_date').cast('date'),
+        'txn_valid'    : F.col('txn_status') != 'Posting Canceled',  # Filtrar
+        'ref_num'      : F.col('end_to_end'),
+        'account_num'  : F.substring(F.col('account_c4b'), 1, 11).cast('long'), 
+        'txn_type_code': F.col('txn_type_code'),  
+        'txn_amount'   : F.col('amount_local'), # Comparar. 
+        'txn_date'     : F.col('txn_postdate'), 
+        'txn_status'   : F.when(F.col('txn_status') == 'Posted', 'P')
                 .otherwise(F.col('txn_status'))}, 
     'match': {
         'where': [F.col('txn_valid')], 
@@ -202,8 +202,8 @@ spei_c4b = {
             'c4b_monto'   : F.round(F.sum('txn_amount'), 2)}}
 }
 
-spei_2 = {
-    'schema': {  # old-ones
+spei_2 = { # Este es Viejo, no estoy -DX- seguro de dónde.  
+    'schema': {  
         'txn_code': 'str', 'txn_date': 'date', 'txn_time': 'str', 
         'txn_amount': 'dbl', 'ref_num': 'str', 'trck_code': 'str', 'sender_account': 'long', 
         'clabe_account': 'long', 'sender_name': 'str', 'sender_id': 'long', 'txn_description': 'str', 
@@ -313,14 +313,18 @@ speigfb_files.sort_values('date', ascending=False)
 
 # COMMAND ----------
 
-speigfb_path = get_source_path(speigfb_files, which_files['spei-ledger'])
+gfb_path = get_source_path(speigfb_files, which_files['spei-ledger'])
 
-gfb_src  = Sourcer(speigfb_path, **spei_gfb)
+gfb_src  = Sourcer(gfb_path, **spei_gfb)
 gfb_prep = gfb_src.start_data(spark)
 gfb_data = gfb_src.setup_data(gfb_prep)
-
 gfb_data.display()
 
+
+
+# COMMAND ----------
+
+speigfb_files
 
 # COMMAND ----------
 
@@ -329,17 +333,18 @@ gfb_data.display()
 
 # COMMAND ----------
 
-speic4b_files.sort_values('date')
+speic4b_files.sort_values('date', ascending=False)
 
 # COMMAND ----------
 
-speic4b_path = get_source_path(speic4b_files, which_files['spei-banking'])
+c4b_path = get_source_path(speic4b_files, which_files['spei-banking'])
 
-c4b_src  = Sourcer(speic4b_path, **spei_c4b)
+c4b_src  = Sourcer(c4b_path, **spei_c4b)
 c4b_prep = c4b_src.start_data(spark)
 c4b_data = c4b_src.setup_data(c4b_prep)
-
 c4b_data.display()
+
+
 
 # COMMAND ----------
 
@@ -353,7 +358,6 @@ c4b_data.display()
 
 # COMMAND ----------
 
-# write_063 = True
 dir_063 = f"{to_reports}/electronic-transfers/"
 
 check_txns = {

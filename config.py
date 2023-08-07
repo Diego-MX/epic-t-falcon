@@ -66,6 +66,22 @@ CORE_2 = {
         'sap_password' : 'core-api-password'},
 }
 
+BLOB_PATHS = {
+    #'btp'          : "ops/fraude/bronze/btp",                
+    #'spei'         : "ops/transactions/spei",                 
+    #'spei2'        : "ops/fraude/bronze/spei",                
+    'spei-gfb'     : "ops/core-banking/conciliations/recoif", 
+    'spei-c4b'     : "ops/core-banking/conciliations/spei", 
+    #'from-cms'     : "ops/regulatory/card-management/transformation-layer",   
+    #'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready", # Extraer y descomprimir
+    #'reports'      : "ops/regulatory/transformation-layer",  # R2422, SISPAGOS,
+    'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.  
+    #'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
+    #'withdrawals'  : "ops/account-management/withdrawals",   # todos los retiros
+    #'commissions'  : "ops/account-management/commissions",   # retiros de cajeros
+    'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI. 
+}
+
 
 RESOURCE_SETUP = {
     # No hay DEV porque no quisieron poner los archivos en DEV. 
@@ -131,22 +147,6 @@ CORE_SETUP = {
                 'username': (1, 'core-api-user'), 
                 'password': (1, 'core-api-password')} } } }
 
-
-BLOB_PATHS = {
-    #'btp'          : "ops/fraude/bronze/btp",                
-    #'spei'         : "ops/transactions/spei",                 
-    #'spei2'        : "ops/fraude/bronze/spei",                
-    'spei-gfb'     : "ops/core-banking/conciliations/recoif", 
-    'spei-c4b'     : "ops/core-banking/conciliations/spei", 
-    #'from-cms'     : "ops/regulatory/card-management/transformation-layer",   
-    #'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready", # Extraer y descomprimir
-    #'reports'      : "ops/regulatory/transformation-layer",  # R2422, SISPAGOS,
-    'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.  
-    #'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
-    #'withdrawals'  : "ops/account-management/withdrawals",   # todos los retiros
-    #'commissions'  : "ops/account-management/commissions",   # retiros de cajeros
-    'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI. 
-}
 
 # Env-independent Usage Variables. 
 

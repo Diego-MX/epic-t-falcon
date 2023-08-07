@@ -90,6 +90,7 @@ class Conciliator:
         self.base_data = the_join
         return the_join
     
+
     def filter_checks(self, base_df:EpicDF=None, f_keys=[], j_alias=None): 
         base_df = base_df or self.base_data
         key_filter = self._keys_to_column(f_keys)
@@ -99,6 +100,7 @@ class Conciliator:
         if j_alias: 
             f_df = f_df.join(j_df, 'left', self.by)
         return f_df 
+
 
     def _keys_to_column(self, str_keys): 
         if isinstance(str_keys, list): 
