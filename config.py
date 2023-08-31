@@ -84,9 +84,8 @@ BLOB_PATHS = {
 
 
 RESOURCE_SETUP = {
-    # No hay DEV porque no quisieron poner los archivos en DEV. 
+    # No hay DEV porque no se pudo hacer un flujo para DEV. 
     # Entonces usamos QAS como si fuera DEV. 🤷
-    # Tampoco se trata de echar culpas ... 
     'qas' : {
         'scope'   : 'eh-core-banking', 
         'sp_keys' : { # oauth-databricks-qas

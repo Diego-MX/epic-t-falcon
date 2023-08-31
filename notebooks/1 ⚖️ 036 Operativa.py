@@ -19,6 +19,10 @@ from pyspark.dbutils import DBUtils
 from pyspark.sql import SparkSession
 import subprocess
 import yaml
+from collections import OrderedDict
+from datetime import datetime as dt, date, timedelta as delta
+from pyspark.sql import functions as F, types as T
+from pytz import timezone
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
@@ -41,20 +45,18 @@ subprocess.check_call(['pip', 'install', url_call])
 
 # COMMAND ----------
 
-from collections import OrderedDict
-from datetime import datetime as dt, date, timedelta as delta
-from pyspark.sql import functions as F, types as T
-from pytz import timezone
+manual = False 
+imprimir = True
 
-now_mx = dt.now(timezone('America/Mexico_City'))
-yday_ish = now_mx.date() - delta(days=1)  
-yday_ish = date(2024, 6, 7)   #  {jul: [3,4,9], jun:[7,30]}
-# falta 7 de junio. 
+if manual: 
+    yday_ish = date(2024, 6, 7)   #  {jul: [3,4,9], jun:[7,30]}
+else: 
+    now_mx = dt.now(timezone('America/Mexico_City'))
+    yday_ish = now_mx.date() - delta(days=1)  
 
-# ya se hizo un pequeño desorden cuando empezaron a cambiar fechas, y áreas bancarias.  
 which_files = {
-    'cloud-banking' : {'date': yday_ish, 'key' : 'CC4B3'},  # 'CCB15'
-    'subledger'     : {'date': yday_ish, 'key' : 'FZE05'}}  # 'FZE03'
+    'cloud-banking': {'date': yday_ish, 'key': 'CC4B3'},  # 'CCB15'
+    'subledger'    : {'date': yday_ish, 'key': 'FZE05'}}  # 'FZE03'
 
 key_date_ops  = yday_ish
 key_date_spei = yday_ish
@@ -111,7 +113,6 @@ to_reports       = λ_address('gold', 'reports2')
 # MAGIC #### Manipulación de columnas
 
 # COMMAND ----------
-
 
 ops_fpsl = {
     'name': 'subledger',
@@ -242,7 +243,6 @@ from src.conciliation import Sourcer, Conciliator as conciliate, get_source_path
 
 # COMMAND ----------
 
-
 fpsl_path = get_source_path(fpsl_files, which_files['subledger'])
 
 try: 
@@ -261,7 +261,6 @@ except:
 # MAGIC ### b. Cloud Banking (C4B)
 
 # COMMAND ----------
-
 
 c4b_path = get_source_path(c4b_files, which_files['cloud-banking'])
 
@@ -298,14 +297,13 @@ check_txns = OrderedDict({
     'fpsl': (F.col( 'c4b_num_txns') == 0) | (F.col( 'c4b_num_txns').isNull()), 
     'indeterminada': None})
 
-try:
-    report_036 = Conciliator(ldgr_src, c4b_src, check_txns)
-    base_036   = report_036.base_match(ldgr_data, c4b_data)
-    diffs_036  = report_036.filter_checks(base_036, '~valida')
-    fpsl_036   = report_036.filter_checks(base_036, ['fpsl', 'indeterminada'])
-    c4b_036    = report_036.filter_checks(base_036, ['c4b',  'indeterminada'])
+report_036 = Conciliator(ldgr_src, c4b_src, check_txns)
+base_036   = report_036.base_match(ldgr_data, c4b_data)
+diffs_036  = report_036.filter_checks(base_036, '~valida')
+fpsl_036   = report_036.filter_checks(base_036, ['fpsl', 'indeterminada'])
+c4b_036    = report_036.filter_checks(base_036, ['c4b',  'indeterminada'])
 
-    
+if imprimir: 
     write_datalake(base_036, spark=spark, overwrite=True, 
             a_path=f"{dir_036}/compare/{key_date_ops}_036_comparativo.csv")
     write_datalake(diffs_036, spark=spark, overwrite=True, 
@@ -314,11 +312,10 @@ try:
             a_path=f"{dir_036}/subledger/{key_date_ops}_036_fpsl.csv")
     write_datalake(c4b_036, spark=spark, overwrite=True,
             a_path=f"{dir_036}/cloud-banking/{key_date_ops}_036_c4b.csv")
-    base_036.display()
 
-except Exception as expt: 
-    print(str(expt))
-    base_036 = None
+base_036.display()
+
+
 
 # COMMAND ----------
 

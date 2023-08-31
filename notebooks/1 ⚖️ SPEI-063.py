@@ -15,10 +15,6 @@
 
 # COMMAND ----------
 
-#%pip uninstall -y epic-py
-
-# COMMAND ----------
-
 from collections import OrderedDict
 from datetime import datetime as dt, timedelta as delta, date
 from pyspark.dbutils import DBUtils
@@ -48,20 +44,20 @@ subprocess.check_call(['pip', 'install', url_call])
 
 # COMMAND ----------
 
-fecha_manual = True
+fecha_manual = False
+imprimir = True
 
 if fecha_manual:
-    yday_ish = date(2023, 7, 27)   
+    yday_ish = date(2023, 7, 28)   
     print(f"Revisa la fecha: [{yday_ish.strftime('%d-%b-%Y')}]") 
 else: 
     now_mx = dt.now(timezone('America/Mexico_City'))
     yday_ish = now_mx.date() - delta(days=1)  
 
-
 # ya se hizo un pequeño desorden cuando se cambiaron fechas y áreas bancarias.  
 which_files = {
-    'spei-banking' : {'date': yday_ish, 'key2': 'S4B1_01'},  # 'CB15'
-    'spei-ledger'  : {'date': yday_ish, 'key' : '900002'}} # '900002'
+    'spei-banking' : {'date': yday_ish, 'key2': 'S4B1_01'}, # 'CB15'
+    'spei-ledger'  : {'date': yday_ish, 'key' : '900002' }} # '900002'
 
 key_date_ops  = yday_ish
 key_date_spei = yday_ish
@@ -78,18 +74,18 @@ from epic_py.tools import dirfiles_df
 from src.tools import write_datalake
 from src.sftp_sources import process_files
 from config import (t_agent, t_resources,
-    #ConfigEnviron, ENV, SERVER, RESOURCE_SETUP, 
+    # ConfigEnviron, ENV, SERVER, RESOURCE_SETUP, 
     DATALAKE_PATHS as paths)
 
 t_storage = t_resources['storage']
 t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')
 
-λ_address = (lambda container, p_key : t_resources.get_resource_url(
-    'abfss', 'storage', container=container, blob_path=paths[p_key]))
+λ_address = (lambda cc, pp : t_resources.get_resource_url(
+    'abfss', 'storage', container=cc, blob_path=pp))
 
-at_banking = λ_address('bronze', 'spei-c4b')
-at_ledger  = λ_address('bronze', 'spei-gfb')
-to_reports = λ_address('gold',   'reports2')
+at_banking = λ_address('bronze', paths['spei-c4b'])
+at_ledger  = λ_address('bronze', paths['spei-gfb'])
+to_reports = λ_address('gold',   paths['reports2'])
 
 print(f"""
 SPEI-C4B : {at_banking}
@@ -274,11 +270,12 @@ print(which_files['spei-ledger'])
 
 # COMMAND ----------
 
+print(at_banking)
 pre_files_1 = dirfiles_df(at_banking, spark)
 pre_files_0 = process_files(pre_files_1, 'spei-banking')
 speic4b_files = pre_files_0.loc[pre_files_0['key1'] == 'CONCILIACION']
 print(which_files['spei-banking'])
-pre_files_0.sort_values('date', ascending=False).query(f"date >= '{since_when}'")
+pre_files_0.sort_values('date', ascending=False)  #.query(f"date >= '{since_when}'")
 
 # COMMAND ----------
 
@@ -318,13 +315,9 @@ gfb_path = get_source_path(speigfb_files, which_files['spei-ledger'])
 gfb_src  = Sourcer(gfb_path, **spei_gfb)
 gfb_prep = gfb_src.start_data(spark)
 gfb_data = gfb_src.setup_data(gfb_prep)
+
+print(gfb_path)
 gfb_data.display()
-
-
-
-# COMMAND ----------
-
-speigfb_files
 
 # COMMAND ----------
 
@@ -343,8 +336,6 @@ c4b_src  = Sourcer(c4b_path, **spei_c4b)
 c4b_prep = c4b_src.start_data(spark)
 c4b_data = c4b_src.setup_data(c4b_prep)
 c4b_data.display()
-
-
 
 # COMMAND ----------
 
@@ -373,14 +364,15 @@ diffs_063  = report_063.filter_checks(base_063, '~valida')
 gfb_063    = report_063.filter_checks(base_063, ['gfb', 'indeterminada'])
 c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
-write_datalake(base_063, spark=spark, overwrite=True, 
-        a_path=f"{dir_063}/compare/{key_date_ops}_063_comparativo.csv")
-write_datalake(diffs_063, spark=spark, overwrite=True, 
-        a_path=f"{dir_063}/discrepancies/{key_date_ops}_063_discrepancias.csv")
-write_datalake(gfb_063, spark=spark, overwrite=True,
-        a_path=f"{dir_063}/subledger/{key_date_ops}_063_gfb.csv")
-write_datalake(c4b_063, spark=spark, overwrite=True,
-        a_path=f"{dir_063}/cloud-banking/{key_date_ops}_063_c4b.csv")
+if imprimir: 
+    write_datalake(base_063, spark=spark, overwrite=True, 
+            a_path=f"{dir_063}/compare/{key_date_ops}_063_comparativo.csv")
+    write_datalake(diffs_063, spark=spark, overwrite=True, 
+            a_path=f"{dir_063}/discrepancies/{key_date_ops}_063_discrepancias.csv")
+    write_datalake(gfb_063, spark=spark, overwrite=True,
+            a_path=f"{dir_063}/subledger/{key_date_ops}_063_spei-gfb.csv")
+    write_datalake(c4b_063, spark=spark, overwrite=True,
+            a_path=f"{dir_063}/cloud-banking/{key_date_ops}_063_spei-c4b.csv")
 
 base_063.display()
 
@@ -399,7 +391,7 @@ from json import dumps
 dumps2 = lambda xx: dumps(xx, default=str)
 
 for kk, vv in which_files.items(): 
-    print(f"{kk}: {dumps2(vv)}")
+    print(f"{kk}\t~ {dumps2(vv)}")
 
 if gfb_data is None: 
     print(f"No se encontró SPEI-GFB correspondiente a {dumps2(which_files['spei-ledger'])}.")
