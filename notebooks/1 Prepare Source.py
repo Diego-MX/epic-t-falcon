@@ -13,7 +13,7 @@
 # MAGIC Para cada archivo, se realiza lo siguiente.  
 # MAGIC 1. Identificar qué tipo de archivo es.  
 # MAGIC 2. Descargar y descomprimir a archivos temporales locales.  
-# MAGIC    Paso necesario -aunque **desafortunado**-, porque Spark no sabe procesar ZIPs directos del _datalake_. 
+# MAGIC    Paso necesario porque Spark no sabe procesar ZIPs directos del _datalake_. 
 # MAGIC 3. Parsear de acuerdo a archivo de configuración. 
 # MAGIC 4. Anexar a la tabla Δ correspondiente. 
 

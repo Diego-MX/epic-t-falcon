@@ -319,6 +319,13 @@ gfb_data = gfb_src.setup_data(gfb_prep)
 print(gfb_path)
 gfb_data.display()
 
+<<<<<<< HEAD:notebooks/1 ⚖️ SPEI-063.py
+=======
+# COMMAND ----------
+
+speigfb_files
+
+>>>>>>> a149e1b01cc64819a79c988856451e3e50aa3e2c:notebooks/1 Reports 063.py
 # COMMAND ----------
 
 # MAGIC %md
@@ -364,6 +371,7 @@ diffs_063  = report_063.filter_checks(base_063, '~valida')
 gfb_063    = report_063.filter_checks(base_063, ['gfb', 'indeterminada'])
 c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
+<<<<<<< HEAD:notebooks/1 ⚖️ SPEI-063.py
 if imprimir: 
     write_datalake(base_063, spark=spark, overwrite=True, 
             a_path=f"{dir_063}/compare/{key_date_ops}_063_comparativo.csv")
@@ -373,6 +381,16 @@ if imprimir:
             a_path=f"{dir_063}/subledger/{key_date_ops}_063_spei-gfb.csv")
     write_datalake(c4b_063, spark=spark, overwrite=True,
             a_path=f"{dir_063}/cloud-banking/{key_date_ops}_063_spei-c4b.csv")
+=======
+write_datalake(base_063, spark=spark, overwrite=True, 
+        a_path=f"{dir_063}/compare/{key_date_ops}_063_comparativo.csv")
+write_datalake(diffs_063, spark=spark, overwrite=True, 
+        a_path=f"{dir_063}/discrepancies/{key_date_ops}_063_discrepancias.csv")
+write_datalake(gfb_063, spark=spark, overwrite=True,
+        a_path=f"{dir_063}/subledger/{key_date_ops}_063_spei-gfb.csv")
+write_datalake(c4b_063, spark=spark, overwrite=True,
+        a_path=f"{dir_063}/cloud-banking/{key_date_ops}_063_spei-c4b.csv")
+>>>>>>> a149e1b01cc64819a79c988856451e3e50aa3e2c:notebooks/1 Reports 063.py
 
 base_063.display()
 
