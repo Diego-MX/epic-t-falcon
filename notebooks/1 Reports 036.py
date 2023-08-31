@@ -112,7 +112,6 @@ to_reports       = λ_address('gold', 'reports2')
 
 # COMMAND ----------
 
-
 ops_fpsl = {
     'name': 'subledger',
     'alias': 'fpsl',  
@@ -242,7 +241,6 @@ from src.conciliation import Sourcer, Conciliator as conciliate, get_source_path
 
 # COMMAND ----------
 
-
 fpsl_path = get_source_path(fpsl_files, which_files['subledger'])
 
 try: 
@@ -261,7 +259,6 @@ except:
 # MAGIC ### b. Cloud Banking (C4B)
 
 # COMMAND ----------
-
 
 c4b_path = get_source_path(c4b_files, which_files['cloud-banking'])
 

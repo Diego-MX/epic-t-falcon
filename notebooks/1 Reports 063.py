@@ -15,10 +15,6 @@
 
 # COMMAND ----------
 
-#%pip uninstall -y epic-py
-
-# COMMAND ----------
-
 from collections import OrderedDict
 from datetime import datetime as dt, timedelta as delta, date
 from pyspark.dbutils import DBUtils
@@ -320,8 +316,6 @@ gfb_prep = gfb_src.start_data(spark)
 gfb_data = gfb_src.setup_data(gfb_prep)
 gfb_data.display()
 
-
-
 # COMMAND ----------
 
 speigfb_files
@@ -378,9 +372,9 @@ write_datalake(base_063, spark=spark, overwrite=True,
 write_datalake(diffs_063, spark=spark, overwrite=True, 
         a_path=f"{dir_063}/discrepancies/{key_date_ops}_063_discrepancias.csv")
 write_datalake(gfb_063, spark=spark, overwrite=True,
-        a_path=f"{dir_063}/subledger/{key_date_ops}_063_gfb.csv")
+        a_path=f"{dir_063}/subledger/{key_date_ops}_063_spei-gfb.csv")
 write_datalake(c4b_063, spark=spark, overwrite=True,
-        a_path=f"{dir_063}/cloud-banking/{key_date_ops}_063_c4b.csv")
+        a_path=f"{dir_063}/cloud-banking/{key_date_ops}_063_spei-c4b.csv")
 
 base_063.display()
 
