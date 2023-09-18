@@ -401,4 +401,4 @@ SERVER = environ.get('SERVER_TYPE')
 CORE_ENV = environ.get('CORE_ENV')
 
 t_agent = EpicIdentity.create(SERVER, config=SETUP_2[ENV])
-t_resources = t_agent.get_resourcer(RESOURCES_2[ENV])
+t_resources = t_agent.get_resourcer(RESOURCES_2[ENV], check_all=False)
