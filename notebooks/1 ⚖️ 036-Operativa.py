@@ -32,8 +32,8 @@ dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
-manual = True 
-imprimir = True
+manual = False
+imprimir = False
 
 if manual: 
     yday_ish = date(2023, 9, 17)  
