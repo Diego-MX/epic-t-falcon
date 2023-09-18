@@ -1,5 +1,8 @@
-# Databricks notebook source
-epicpy_tag = 'v1.1.19'
+# Databricks notebook source    pylint: disable=missing-module-docstring,invalid-name
+epicpy_tag = 'v1.1.19'  # pylint: disable=invalid-name
+
+# pylint: disable=wrong-import-position,wrong-import-order
+# pylint: disable=no-name-in-module,unspecified-encoding,import-error
 
 # COMMAND ----------
 
@@ -12,7 +15,7 @@ import yaml
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
 
-with open("../user_databricks.yml", 'r') as _f: 
+with open("../user_databricks.yml", 'r') as _f:
     u_dbks = yaml.safe_load(_f)
 
 epicpy_load = {

@@ -19,6 +19,7 @@
 
 # COMMAND ----------
 
+# pylint: disable=wrong-import-position,missing-module-docstring,wrong-import-order
 from collections import OrderedDict
 from datetime import datetime as dt, date, timedelta as delta
 from pytz import timezone
@@ -32,8 +33,8 @@ dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
-manual = True 
-imprimir = True
+manual = False
+imprimir = False
 
 if manual: 
     yday_ish = date(2023, 9, 17)  
