@@ -24,9 +24,7 @@ file_formats = {
 date_formats = {
     'spei-ledger' : '%d%m%Y'}
 
-    
 def process_files(file_df:pd_DF, a_src) -> pd_DF: 
-    
     date_fmtr = lambda df: pd.to_datetime(df['date'], 
                 format=date_formats.get(a_src, '%Y%m%d'))
     
@@ -34,7 +32,7 @@ def process_files(file_df:pd_DF, a_src) -> pd_DF:
         .assign(date=date_fmtr, source=a_src))
     mod_df = pd.concat([file_df, file_keys], axis=1)
     return mod_df
-
+    
 
 # Esta función utiliza las variables definidas en `1. Esquemas de archivos`: 
 # tsv_options, schemas, renamers, read_cols, mod_cols, base_cols. 
@@ -89,7 +87,6 @@ def update_sourcers(blobber, blob_dir, trgt_dir):
 
 meta_cols = [('_metadata.file_name', 'file_path'), 
              ('_metadata.file_modification_time', 'file_modified')]
-
 
 def prepare_sourcer(b_key, layout_dir): 
     meta_cols = [('_metadata.file_name', 'file_path'), 

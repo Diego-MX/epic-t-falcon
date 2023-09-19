@@ -1,14 +1,12 @@
 from collections import OrderedDict
-from epic_py.delta import EpicDF, when_plus
 from pyspark.sql import functions as F, types as T
-from toolz import dicttoolz as d_toolz
 
+from epic_py.delta import EpicDF, when_plus
 
 schema_types = {
     'int' : T.IntegerType, 'long' : T.LongType,   'ts'   : T.TimestampType, 
     'str' : T.StringType,  'dbl'  : T.DoubleType, 'date' : T.DateType, 
-    'bool': T.BooleanType, 'float': T.FloatType,  'null' : T.NullType}
-    
+    'bool': T.BooleanType, 'float': T.FloatType,  'null' : T.NullType}    
 
 class Sourcer(): 
     def __init__(self, path, **kwargs): 

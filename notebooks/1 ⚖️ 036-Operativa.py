@@ -15,69 +15,52 @@
 
 # COMMAND ----------
 
-from pyspark.dbutils import DBUtils
-from pyspark.sql import SparkSession
-import subprocess
-import yaml
+# MAGIC %run ./0_install_nb_reqs
+
+# COMMAND ----------
+
 from collections import OrderedDict
 from datetime import datetime as dt, date, timedelta as delta
-from pyspark.sql import functions as F, types as T
 from pytz import timezone
+
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F, types as T
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
 
-with open("../user_databricks.yml", 'r') as _f: 
-    u_dbks = yaml.safe_load(_f)
-
-epicpy_load = {
-    'url'   : 'github.com/Bineo2/data-python-tools.git', 
-    'branch': 'dev-diego',
-    'token' : dbutils.secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])}
-
-url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
-subprocess.check_call(['pip', 'install', url_call])
-
 # COMMAND ----------
 
-# MAGIC %md 
-# MAGIC ## 0.b Especificar fechas
-
-# COMMAND ----------
-
-manual = False 
+manual = True 
 imprimir = True
 
 if manual: 
-    yday_ish = date(2024, 6, 7)   #  {jul: [3,4,9], jun:[7,30]}
+    yday_ish = date(2023, 9, 17)  
 else: 
     now_mx = dt.now(timezone('America/Mexico_City'))
     yday_ish = now_mx.date() - delta(days=1)  
 
 which_files = {
-    'cloud-banking': {'date': yday_ish, 'key': 'CC4B3'},  # 'CCB15'
-    'subledger'    : {'date': yday_ish, 'key': 'FZE05'}}  # 'FZE03'
+    'cloud-banking': {'date': yday_ish, 'key': 'CC4B5'},  # 'CCB15'
+    'subledger'    : {'date': yday_ish, 'key': 'FZE07'}}  # 'FZE03'
 
 key_date_ops  = yday_ish
 key_date_spei = yday_ish
 
 # COMMAND ----------
 
-from importlib import reload
-import epic_py; reload(epic_py)
-import src; reload(src)
-import config; reload(config)
-
 from epic_py.delta import EpicDF
 from epic_py.tools import dirfiles_df
+
 from src.tools import write_datalake
 from src.sftp_sources import process_files
+from src.conciliation import Sourcer, Conciliator, get_source_path
 from config import (t_agent, t_resources, 
     DATALAKE_PATHS as paths)
 
 t_storage = t_resources['storage']
 t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')
-
 λ_address = (lambda ctner, p_key : t_resources.get_resource_url(
     'abfss', 'storage', container=ctner, blob_path=paths[p_key]))
 
@@ -114,7 +97,7 @@ to_reports       = λ_address('gold', 'reports2')
 
 # COMMAND ----------
 
-ops_fpsl = {
+ops_ldgr = {
     'name': 'subledger',
     'alias': 'fpsl',  
     'options': dict([
@@ -194,12 +177,18 @@ ops_c4b = {
 
 # COMMAND ----------
 
+[x.name for x in dbutils.fs.ls(f"{at_conciliations}/cloud-banking")]
+
+# COMMAND ----------
+
 since_when = yday_ish - delta(5)
 data_src   = 'subledger'
 pre_files  = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
-fpsl_files = process_files(pre_files, data_src)
+ldgr_files = process_files(pre_files, data_src)
 print(which_files['subledger'])
-fpsl_files.sort_values(['date'], ascending=False).query(f"date >= '{since_when}'")
+(ldgr_files
+    .sort_values(['date'], ascending=False)
+    .query(f"date >= '{since_when}'"))
 
 # COMMAND ----------
 
@@ -221,13 +210,6 @@ c4b_files.sort_values('date', ascending=False).query(f"date >= '{since_when}'")
 
 # COMMAND ----------
 
-from importlib import reload
-from src import conciliation; reload(conciliation)
-from src.conciliation import Sourcer, Conciliator as conciliate, get_source_path
-
-
-# COMMAND ----------
-
 # MAGIC %md  
 # MAGIC
 # MAGIC Utilizamos una llave general de fecha `key_date` para leer los archivos de las 4 fuentes.  
@@ -243,16 +225,16 @@ from src.conciliation import Sourcer, Conciliator as conciliate, get_source_path
 
 # COMMAND ----------
 
-fpsl_path = get_source_path(fpsl_files, which_files['subledger'])
+ldgr_path = get_source_path(ldgr_files, which_files['subledger'])
 
 try: 
-    fpsl_src = Sourcer(fpsl_path, **ops_fpsl)
-    fpsl_prep = fpsl_src.start_data(spark)
-    fpsl_data = fpsl_src.setup_data(fpsl_prep)
+    ldgr_src = Sourcer(ldgr_path, **ops_ldgr)
+    ldgr_prep = ldgr_src.start_data(spark)
+    ldgr_data = ldgr_src.setup_data(ldgr_prep)
 
-    fpsl_data.display()
+    ldgr_data.display()
 except: 
-    fpsl_data = None
+    ldgr_data = None
 
 
 # COMMAND ----------
@@ -265,7 +247,7 @@ except:
 c4b_path = get_source_path(c4b_files, which_files['cloud-banking'])
 
 try: 
-    c4b_src = Sourcer(c4b_path, **ldgr_c4b)
+    c4b_src = Sourcer(c4b_path, **ops_c4b)
     c4b_prep = c4b_src.start_data(spark)
     c4b_data = c4b_src.setup_data(c4b_prep)
 
@@ -304,14 +286,14 @@ fpsl_036   = report_036.filter_checks(base_036, ['fpsl', 'indeterminada'])
 c4b_036    = report_036.filter_checks(base_036, ['c4b',  'indeterminada'])
 
 if imprimir: 
-    write_datalake(base_036, spark=spark, overwrite=True, 
-            a_path=f"{dir_036}/compare/{key_date_ops}_036_comparativo.csv")
-    write_datalake(diffs_036, spark=spark, overwrite=True, 
-            a_path=f"{dir_036}/discrepancies/{key_date_ops}_036_discrepancias.csv")
-    write_datalake(fpsl_036, spark=spark, overwrite=True,
-            a_path=f"{dir_036}/subledger/{key_date_ops}_036_fpsl.csv")
-    write_datalake(c4b_036, spark=spark, overwrite=True,
-            a_path=f"{dir_036}/cloud-banking/{key_date_ops}_036_c4b.csv")
+    write_datalake(base_036, f"{dir_036}/compare/{key_date_ops}_036_comparativo.csv", 
+        spark=spark, overwrite=True)
+    write_datalake(diffs_036, f"{dir_036}/discrepancies/{key_date_ops}_036_discrepancias.csv", 
+        spark=spark, overwrite=True)
+    write_datalake(fpsl_036, f"{dir_036}/subledger/{key_date_ops}_036_fpsl.csv", 
+        spark=spark, overwrite=True)
+    write_datalake(c4b_036, f"{dir_036}/cloud-banking/{key_date_ops}_036_c4b.csv", 
+        spark=spark, overwrite=True)
 
 base_036.display()
 

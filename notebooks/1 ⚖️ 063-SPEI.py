@@ -15,27 +15,19 @@
 
 # COMMAND ----------
 
+# MAGIC %run ./0_install_nb_reqs
+
+# COMMAND ----------
+
 from collections import OrderedDict
 from datetime import datetime as dt, timedelta as delta, date
+from pytz import timezone
+
 from pyspark.dbutils import DBUtils
 from pyspark.sql import SparkSession, functions as F, types as T
-from pytz import timezone
-import subprocess
-import yaml
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
-
-with open("../user_databricks.yml", 'r') as _f: 
-    u_dbks = yaml.safe_load(_f)
-
-epicpy_load = {
-    'url'   : 'github.com/Bineo2/data-python-tools.git', 
-    'branch': 'dev-diego', 
-    'token' : dbutils.secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])}
-
-url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
-subprocess.check_call(['pip', 'install', url_call])
 
 # COMMAND ----------
 
@@ -88,9 +80,9 @@ at_ledger  = λ_address('bronze', paths['spei-gfb'])
 to_reports = λ_address('gold',   paths['reports2'])
 
 print(f"""
-SPEI-C4B : {at_banking}
-SPEI-GFB : {at_ledger}
-Reports  : {to_reports}
+    SPEI-C4B : {at_banking}
+    SPEI-GFB : {at_ledger}
+    Reports  : {to_reports}
 """)
 
 
@@ -319,13 +311,7 @@ gfb_data = gfb_src.setup_data(gfb_prep)
 print(gfb_path)
 gfb_data.display()
 
-<<<<<<< HEAD:notebooks/1 ⚖️ SPEI-063.py
-=======
-# COMMAND ----------
 
-speigfb_files
-
->>>>>>> a149e1b01cc64819a79c988856451e3e50aa3e2c:notebooks/1 Reports 063.py
 # COMMAND ----------
 
 # MAGIC %md
@@ -371,7 +357,7 @@ diffs_063  = report_063.filter_checks(base_063, '~valida')
 gfb_063    = report_063.filter_checks(base_063, ['gfb', 'indeterminada'])
 c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
-<<<<<<< HEAD:notebooks/1 ⚖️ SPEI-063.py
+
 if imprimir: 
     write_datalake(base_063, spark=spark, overwrite=True, 
             a_path=f"{dir_063}/compare/{key_date_ops}_063_comparativo.csv")
@@ -381,18 +367,7 @@ if imprimir:
             a_path=f"{dir_063}/subledger/{key_date_ops}_063_spei-gfb.csv")
     write_datalake(c4b_063, spark=spark, overwrite=True,
             a_path=f"{dir_063}/cloud-banking/{key_date_ops}_063_spei-c4b.csv")
-=======
-write_datalake(base_063, spark=spark, overwrite=True, 
-        a_path=f"{dir_063}/compare/{key_date_ops}_063_comparativo.csv")
-write_datalake(diffs_063, spark=spark, overwrite=True, 
-        a_path=f"{dir_063}/discrepancies/{key_date_ops}_063_discrepancias.csv")
-write_datalake(gfb_063, spark=spark, overwrite=True,
-        a_path=f"{dir_063}/subledger/{key_date_ops}_063_spei-gfb.csv")
-write_datalake(c4b_063, spark=spark, overwrite=True,
-        a_path=f"{dir_063}/cloud-banking/{key_date_ops}_063_spei-c4b.csv")
->>>>>>> a149e1b01cc64819a79c988856451e3e50aa3e2c:notebooks/1 Reports 063.py
 
-base_063.display()
 
 # COMMAND ----------
 
