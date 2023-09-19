@@ -48,7 +48,7 @@ else:
 
 # ya se hizo un pequeño desorden cuando se cambiaron fechas y áreas bancarias.  
 which_files = {
-    'spei-banking' : {'date': yday_ish, 'key2': 'S4B1_01'}, # 'CB15'
+    'spei-banking' : {'date': yday_ish, 'key2': 'C4B5_01'}, # CB15 S4B1_01
     'spei-ledger'  : {'date': yday_ish, 'key' : '900002' }} # '900002'
 
 key_date_ops  = yday_ish
@@ -149,7 +149,7 @@ spei_gfb = {  # RECOIF
 spei_c4b = {
     'name': 'spei-banking', 
     'alias': 'c4b', 
-    'options': dict(mode='PERMISIVE', sep=',', header=False, 
+    'options': dict(mode='PERMISIVE', sep='|', header=False, 
             dateFormat='d-M-y', timestampFormat='d/M/y H:m:s'), 
     'schema': OrderedDict({
         'account_c4b': 'str', 'txn_type_code': 'str', 
@@ -316,10 +316,6 @@ gfb_data.display()
 
 # MAGIC %md
 # MAGIC ### d. SPEI-C4B
-
-# COMMAND ----------
-
-speic4b_files.sort_values('date', ascending=False)
 
 # COMMAND ----------
 
