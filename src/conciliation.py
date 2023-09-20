@@ -1,6 +1,9 @@
 from collections import OrderedDict
-from pyspark.sql import functions as F, types as T
+from warnings import warn
 
+import pandas as pd
+from pandas import DataFrame as pd_DF
+from pyspark.sql import functions as F, types as T
 from epic_py.delta import EpicDF, when_plus
 
 schema_types = {
@@ -108,6 +111,92 @@ class Conciliator:
         return f_col
     
 
+# Nos apoyamos en estos formatos de archivos predefinidos. 
+# Estas Regex funcionan para dataframes de pandas, mas no de Spark. 
+file_formats = {
+    'subledger'     : r'CONCILIA(?P<key>\w+)(?P<date>\d{8})\.txt', 
+    'Cloud-Banking' : r'CONCILIA(?P<key>\w+)(?P<date>\d{8})\.txt', 
+    'cloud-banking' : r'CONCILIA(?P<key>\w+)(?P<date>\d{8})\.txt', 
+    'spei-ledger'   : r'RECOIF(?P<key>\d+)(?P<date>\d{8})H(?P<time>\d{6})\.TXT',  
+    'spei-banking'  : r'SPEI_FILE_(?P<key1>\w+)_(?P<date>\d{8})_?(?P<key2>\w*)\.txt', 
+    'spei2-banking' : r'SPEI_FILE_(?P<key1>\w+)_(?P<date>\d{8})_?(?P<key2>\w*)\.txt',
+}
+
+date_formats = {
+    'spei-ledger' : '%d%m%Y'}
+
+def process_files(file_df: pd_DF, a_src, w_match=None) -> pd_DF: 
+    date_fmtr = lambda df: pd.to_datetime(df['date'], 
+                format=date_formats.get(a_src, '%Y%m%d'))
+    file_keys = (file_df['name'].str.extract(file_formats[a_src])
+        .assign(date=date_fmtr, source=a_src))
+    return pd.concat([file_df, file_keys], axis=1)
+
+
+def files_matcher(files_df, match_dict): 
+    nn, pp = len(files_df), len(match_dict)
+    matcher = pd.Series(0, range(nn))
+    for ii, kv in enumerate(match_dict.items()): 
+        matcher += (pp-ii) * (files_df[kv[0]] == kv[1]).astype(int)
+    w_match = (files_df
+        .assign(matcher=matcher)
+        .sort_values(['matcher', *match_dict], ascending=False)
+        .reset_index())
+    
+    are_max = (matcher == max(matcher))
+    one_match = (sum(are_max) == 1)
+    full_match = (w_match.loc[0, 'matcher'] == sum(range(pp+1)))
+    if full_match and one_match: 
+        path = w_match.loc[0, 'path']
+        status = 1
+    elif one_match: 
+        path = w_match.loc[0, 'path']
+        status = 2
+    else: 
+        path = None
+        status = 3
+    return (w_match, path, status)
+
+
+# Esta función utiliza las variables definidas en `1. Esquemas de archivos`: 
+# tsv_options, schemas, renamers, read_cols, mod_cols, base_cols. 
+# Aguas con esas definiciones.  
+
+def get_match_path(dir_df, file_keys): 
+    # Estos Matchers se usan para la función GET_MATCH_PATH, y luego READ_SOURCE_TABLE. 
+    matchers_keys = {
+        'subledger'     : ["key == 'FZE02'", "key == 'FZE03'"],  # FPSL
+        'cloud-banking' : ["key == 'CC4B2'", "key == 'CCB15'"],  # C4B
+        'spei-ledger'   : [], 
+        'spei-banking'  : []}
+    
+    def condition_path(lgls): 
+        # (estatus, respuesta-ish)
+        if   lgls.sum() == 1: 
+            return (1, dir_df.loc[lgls]['path'].values[0])
+        elif lgls.sum() == 0: 
+            return (0, "There aren't matches")
+        elif lgls.sum() > 1: 
+            return (2, "There are many matches")
+    
+    matches_0 = (dir_df['date'].dt.date == file_keys['date'])
+    the_matchers = ['True'] + matchers_keys[file_keys['key']]
+    
+    fails = {0: 0, 2: 0}
+    for ii, other_match in enumerate(the_matchers): 
+        matches_1 = matches_0 & dir_df.eval(other_match)
+        has_path  = condition_path(matches_1)
+        if has_path[0] == 1: 
+            return has_path[1]
+        else: 
+            fails[has_path[0]] += 1
+            print(f"Trying matches {ii+1} of {len(the_matchers)}:  failing status {has_path[0]}.")
+            continue
+    else: 
+        print(f"Can't find file for date {file_keys['date']}.")
+        return None
+
+
 def get_source_path(dir_df, file_keys): 
     λ_equal = lambda k_v: "({} == '{}')".format(*k_v)
     q_str = ' & '.join(map(λ_equal, file_keys.items()))
@@ -118,3 +207,4 @@ def get_source_path(dir_df, file_keys):
         return None
     
     return path_df['path'].iloc[0]
+    

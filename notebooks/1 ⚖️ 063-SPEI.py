@@ -1,4 +1,4 @@
-# Databricks notebook source    # pylint: disable=missing-module-docstring
+# Databricks notebook source
 # MAGIC %md
 # MAGIC ## Introducción
 # MAGIC El objetivo de este notebook es correr los scripts para ejecutar las conciliaciones. 
@@ -21,10 +21,18 @@
 
 # pylint: disable=wrong-import-order,wrong-import-position
 from datetime import datetime as dt, timedelta as delta
+from operator import add, itemgetter, methodcaller as ϱ
 from pytz import timezone as tz
 
 from pyspark.dbutils import DBUtils     # pylint: disable=no-name-in-module,import-error
 from pyspark.sql import SparkSession, functions as F
+from toolz import compose_left, identity, juxt
+
+from epic_py.tools import dirfiles_df, partial2
+from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
+from refs.layouts import conciliations as c_layouts
+from src.conciliation import (Sourcer, Conciliator,
+    files_matcher, get_source_path, process_files)
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
@@ -44,28 +52,6 @@ dbutils.widgets.text('recoif', '900002')
 
 # COMMAND ----------
 
-r_date = dt.strptime(dbutils.widgets.get('date'), '%Y-%m-%d')
-c4b_key = dbutils.widgets.get('c4b_spei')
-recoif_key = dbutils.widgets.get('recoif')
-
-which_files = {
-    'cloud-banking': dict(date=r_date, key=c4b_key),  
-    'subledger'    : dict(date=r_date, key=recoif_key)} 
-
-# COMMAND ----------
-
-from importlib import reload
-import epic_py; reload(epic_py)     # pylint: disable=multiple-statements
-import src; reload(src)     # pylint: disable=multiple-statements
-import config; reload(config)     # pylint: disable=multiple-statements
-
-from epic_py.tools import dirfiles_df
-from src.sftp_sources import process_files
-from src.conciliation import Sourcer, Conciliator, get_source_path
-
-from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
-from refs.layouts import conciliations as c_layouts
-
 t_storage = t_resourcer['storage']
 t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')
 t_resourcer.set_dbks_permissions(t_permissions)
@@ -77,11 +63,19 @@ at_banking = λ_address('bronze', paths['spei-c4b'])
 at_ledger  = λ_address('bronze', paths['spei-gfb'])
 to_reports = λ_address('gold',   paths['reports2'])
 
+tmp_parent = compose_left(
+    ϱ('split', '/'), itemgetter(slice(0,-1)), 
+    partial2(add, ..., ['tmp',]), 
+    '/'.join)
+
+r_date = dt.strptime(dbutils.widgets.get('date'), '%Y-%m-%d')
+c4b_key = dbutils.widgets.get('c4b_spei')
+recoif_key = dbutils.widgets.get('recoif')
+
 print(f"""
     SPEI-C4B : {at_banking}
     SPEI-GFB : {at_ledger}
-    Reports  : {to_reports}
-""")
+    Reports  : {to_reports}""")
 
 
 # COMMAND ----------
@@ -112,10 +106,6 @@ print(f"""
 
 # COMMAND ----------
 
-# MAGIC %md 
-# MAGIC #### Manipulación de columnas
-
-# COMMAND ----------
 # MAGIC %md
 # MAGIC #### c. SPEI-GFB
 
@@ -132,12 +122,13 @@ print(f"""
 
 # COMMAND ----------
 
-since_when = r_date - delta(5)
+data_src = 'spei-ledger'    # pylint: disable=invalid-name 
 
-pre_files_1   = dirfiles_df(at_ledger, spark)
-speigfb_files = process_files(pre_files_1, 'spei-ledger')
-print(which_files['spei-ledger'])
-
+files_0 = dirfiles_df(f"{at_ledger}", spark)
+files_1 = process_files(files_0, data_src)
+speigfb_results = files_matcher(files_1, dict(date=r_date, key=recoif_key))
+(gfb_files, gfb_path, gfb_status) = speigfb_results
+gfb_files.query('matcher > 0')
 
 # COMMAND ----------
 
@@ -177,12 +168,13 @@ print(which_files['spei-ledger'])
 
 # COMMAND ----------
 
-print(at_banking)
-pre_files_1 = dirfiles_df(at_banking, spark)
-pre_files_0 = process_files(pre_files_1, 'spei-banking')
-speic4b_files = pre_files_0.loc[pre_files_0['key1'] == 'CONCILIACION']
-print(which_files['spei-banking'])
-pre_files_0.sort_values('date', ascending=False)  #.query(f"date >= '{since_when}'")
+data_src = 'spei-banking'    # pylint: disable=invalid-name 
+
+files_0 = dirfiles_df(f"{at_banking}", spark)
+files_1 = process_files(files_0, data_src)
+speic4b_results = files_matcher(files_1, dict(date=r_date, key1=c4b_key))
+(c4b_files, c4b_path, c4b_status) = speic4b_results
+c4b_files.query('matcher > 0')
 
 # COMMAND ----------
 
@@ -208,12 +200,6 @@ pre_files_0.sort_values('date', ascending=False)  #.query(f"date >= '{since_when
 
 # COMMAND ----------
 
-speigfb_files.sort_values('date', ascending=False)
-
-# COMMAND ----------
-
-gfb_path = get_source_path(speigfb_files, which_files['spei-ledger'])
-
 gfb_src  = Sourcer(gfb_path, **c_layouts.gfb_spei_specs)
 gfb_prep = gfb_src.start_data(spark)
 gfb_data = gfb_src.setup_data(gfb_prep)
@@ -221,15 +207,12 @@ gfb_data = gfb_src.setup_data(gfb_prep)
 print(gfb_path)
 gfb_data.display()
 
-
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ### d. SPEI-C4B
 
 # COMMAND ----------
-
-c4b_path = get_source_path(speic4b_files, which_files['spei-banking'])
 
 c4b_src  = Sourcer(c4b_path, **c_layouts.c4b_spei_specs)
 c4b_prep = c4b_src.start_data(spark)
@@ -263,10 +246,12 @@ diffs_063  = report_063.filter_checks(base_063, '~valida')
 gfb_063    = report_063.filter_checks(base_063, ['gfb', 'indeterminada'])
 c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
-base_063.save_as_file(f"{dir_063}/compare/{r_date}_063_comparativo.csv")
-diffs_063.save_as_file(f"{dir_063}/discrepancies/{r_date}_063_discrepancias.csv")
-gfb_063.save_as_file(f"{dir_063}/subledger/{r_date}_063_spei-gfb.csv")
-c4b_063.save_as_file(f"{dir_063}/cloud-banking/{r_date}_063_spei-c4b.csv")
+two_paths = juxt(identity, tmp_parent)
+
+base_063.save_as_file(*two_paths(f"{dir_063}/compare/{r_date}_063_comparativo.csv"))
+diffs_063.save_as_file(*two_paths(f"{dir_063}/discrepancies/{r_date}_063_discrepancias.csv"))
+gfb_063.save_as_file(*two_paths(f"{dir_063}/subledger/{r_date}_063_spei-gfb.csv"))
+c4b_063.save_as_file(*two_paths(f"{dir_063}/cloud-banking/{r_date}_063_spei-c4b.csv"))
 
 
 # COMMAND ----------
@@ -277,20 +262,3 @@ c4b_063.save_as_file(f"{dir_063}/cloud-banking/{r_date}_063_spei-c4b.csv")
 # MAGIC Aquí vemos algunos de los resultados claves de le ejecución:  
 # MAGIC - Procesos que no se concluyeron.  
 # MAGIC - Resumenes de los que sí.  
-
-# COMMAND ----------
-
-from json import dumps
-dumps2 = lambda xx: dumps(xx, default=str)
-
-for kk, vv in which_files.items(): 
-    print(f"{kk}\t~ {dumps2(vv)}")
-
-if gfb_data is None: 
-    print(f"No se encontró SPEI-GFB correspondiente a {dumps2(which_files['spei-ledger'])}.")
-
-if c4b_data is None: 
-    print(f"No se encontró SPEI-C4B correspondiente a {dumps2(which_files['spei-banking'])}.")
-
-if base_063 is None: 
-    print("No se concluyó el reporte 063.")
