@@ -3,6 +3,7 @@ from pandas import DataFrame as pd_DF, Series as pd_S
 from pyspark.sql import functions as F, types as T, DataFrame as spk_DF
 import re
 from typing import Union
+from warnings import warn
 
 from epic_py.delta import EpicDF, file_exists
 
@@ -98,6 +99,7 @@ def join_with_suffix(a_df:EpicDF, b_df:EpicDF, on_cols, how, suffix):
 
 def write_datalake(a_df: Union[spk_DF, pd_DF, pd_S], 
         a_path, container=None, overwrite=False, spark=None): 
+    warn("WRITE_DATALAKE is outdated.  Use EPICDF.SAVE_AS_FILE")
     
     if isinstance(a_df, spk_DF):
         dbutils = DBUtils(spark)

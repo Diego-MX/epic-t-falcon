@@ -1,5 +1,5 @@
-# Databricks notebook source    pylint: disable=missing-module-docstring,invalid-name
-epicpy_tag = 'v1.1.19'  # pylint: disable=invalid-name
+# Databricks notebook source
+epicpy_tag = 'gh-1.2'  # pylint: disable=invalid-name
 
 # pylint: disable=wrong-import-position,wrong-import-order
 # pylint: disable=no-name-in-module,unspecified-encoding,import-error
