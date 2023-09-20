@@ -6,6 +6,7 @@ from pyspark.sql import functions as F
 gfb_spei_specs = {  # RECOIF
     'name': 'spei-subledger', 
     'alias': 'gfb', 
+    'f-regex': r'RECOIF(?P<key>\d+)(?P<date>\d{8})H(?P<time>\d{6})\.TXT', 
     'options': dict(mode='PERMISIVE', sep=';', header=False), 
     'schema' : OrderedDict({
         'extra': 'str', 'cep_issuer': 'int_2', 'account_id': 'long', 'account_digital': 'long', 

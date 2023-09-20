@@ -6,10 +6,10 @@ from pyspark.sql import functions as F
 c4b_specs = {
     'name': 'cloud-banking',
     'alias': 'c4b',
-    'options': dict([
-        ('mode', 'PERMISIVE'),
-        ('sep', '|'), ('header', True), ('nullValue', 'null'),
-        ('dateFormat', 'd.M.y'), ('timestampFormat', 'd.M.y H:m:s')]),
+    'f-regex': r'CONCILIA(?P<key>\w+)(?P<date>\d{8})\.txt',
+    'options': dict(mode='PERMISIVE', 
+        sep='|', header=True, nullValue='null',
+        dateFormat='d.M.y', timestampFormat='d.M.y H:m:s'),
     'schema' : OrderedDict({
         'ACCOUNTID': 'str', 'TRANSACTIONTYPENAME': 'str', 'ACCOUNTHOLDERID': 'long',
         'POSTINGDATE':'date', 'AMOUNT': 'dbl', 'CURRENCY': 'str', 'VALUEDATE': 'date',

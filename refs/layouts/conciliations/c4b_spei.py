@@ -6,6 +6,7 @@ from pyspark.sql import functions as F
 c4b_spei_specs = {
     'name': 'spei-banking',
     'alias': 'c4b',
+    'f-regex': r'SPEI_FILE_(?P<key1>\w+)_(?P<date>\d{8})_?(?P<key2>\w*)\.txt',
     'options': dict(mode='PERMISIVE', sep='|', header=False,
             dateFormat='d-M-y', timestampFormat='d/M/y H:m:s'),
     'schema': OrderedDict({
