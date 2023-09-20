@@ -1,4 +1,4 @@
-# Databricks notebook source
+# Databricks notebook source    # pylint: disable=missing-module-docstring
 # MAGIC %md
 # MAGIC ## Introducción
 # MAGIC El objetivo de este notebook es correr los scripts para ejecutar las conciliaciones. 
@@ -21,12 +21,20 @@
 
 # pylint: disable=wrong-import-position,missing-module-docstring,wrong-import-order
 from collections import OrderedDict
-from datetime import datetime as dt, date, timedelta as delta
+from datetime import datetime as dt, timedelta as delta
+from json import dumps
 from pytz import timezone as tz
 
-from pyspark.dbutils import DBUtils
+from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
 from pyspark.sql import SparkSession
-from pyspark.sql import functions as F, types as T
+from pyspark.sql import functions as F
+
+from epic_py.tools import dirfiles_df
+
+from src.sftp_sources import process_files
+from src.conciliation import Sourcer, Conciliator, get_source_path
+from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
+from refs.layouts import conciliations as c_layouts
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
@@ -51,18 +59,6 @@ which_files = {
 
 # COMMAND ----------
 
-from importlib import reload
-import config; reload(config)
-
-from epic_py.delta import EpicDF
-from epic_py.tools import dirfiles_df
-
-from src.tools import write_datalake
-from src.sftp_sources import process_files
-from src.conciliation import Sourcer, Conciliator, get_source_path
-from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
-from refs.layouts import conciliations as c_layouts
-
 t_storage = t_resourcer['storage']
 t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')
 t_resourcer.set_dbks_permissions(t_permissions)
@@ -72,6 +68,8 @@ t_resourcer.set_dbks_permissions(t_permissions)
 
 at_conciliations = λ_address('raw', 'conciliations')
 to_reports       = λ_address('gold', 'reports2')
+
+dumps2 = lambda xx: dumps(xx, default=str)
 
 # COMMAND ----------
 
@@ -83,9 +81,12 @@ to_reports       = λ_address('gold', 'reports2')
 # MAGIC %md  
 # MAGIC
 # MAGIC - Las fuentes de datos que utilizamos se alojan en carpetas del _datalake_.  
-# MAGIC - Los archivos de las carpetas tienen metadatos en sus nombres, que se extraen en la subsección `Regex Carpetas`.  
-# MAGIC - Además los archivos consisten de datos tabulares cuyos esquemas se construyen en la sección correspondiente.  
-# MAGIC - Finalmente se procesa cada una de las fuentes, de acuerdo a la llave de identificación, su descripción y el sistema al que pertenece.    
+# MAGIC - Los archivos de las carpetas tienen metadatos en sus nombres, que se extraen en 
+# MAGIC la subsección `Regex Carpetas`.  
+# MAGIC - Además los archivos consisten de datos tabulares cuyos esquemas se construyen en 
+# MAGIC la sección correspondiente.  
+# MAGIC - Finalmente se procesa cada una de las fuentes, de acuerdo a la llave de identificación, 
+# MAGIC su descripción y el sistema al que pertenece.    
 # MAGIC   + `subledger`; sistema contable operativo; FPSL de SAP (_financial product subleger_),    
 # MAGIC   + `cloud-banking`; sistema operativo general; C4B de SAP (tal cual _cloud for banking_),  
 # MAGIC   + `spei-ledger`; sistema contable de transferencias electrónicas;   
@@ -104,7 +105,7 @@ to_reports       = λ_address('gold', 'reports2')
 # COMMAND ----------
 
 since_when = r_date - delta(5)
-data_src   = 'subledger'
+data_src   = 'subledger'    # pylint: disable=invalid-name 
 pre_files  = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
 ldgr_files = process_files(pre_files, data_src)
 print(which_files['subledger'])
@@ -119,7 +120,7 @@ print(which_files['subledger'])
 
 # COMMAND ----------
 
-data_src  = 'cloud-banking'
+data_src  = 'cloud-banking'     # pylint: disable=invalid-name
 pre_files = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
 c4b_files = process_files(pre_files, data_src)
 print(which_files['cloud-banking'])
@@ -137,8 +138,10 @@ c4b_files.sort_values('date', ascending=False).query(f"date >= '{since_when}'")
 # MAGIC Utilizamos una llave general de fecha `key_date` para leer los archivos de las 4 fuentes.  
 # MAGIC Para cada fuente seguimos el procedimiento:  
 # MAGIC     - Identificar un archivo, y sólo uno, con la fecha proporcionada.  
-# MAGIC     - Leer los datos de acuerdo a las especificaciones definidas en la sección anterior, y mostrar la tabla correspondiente.  
-# MAGIC     - Definir modificaciones de acuerdo a los propios reportes de conciliación, y aplicarlos para alistar las tablas.  
+# MAGIC     - Leer los datos de acuerdo a las especificaciones definidas en la sección anterior, 
+# MAGIC y mostrar la tabla correspondiente.  
+# MAGIC     - Definir modificaciones de acuerdo a los propios reportes de conciliación, 
+# MAGIC y aplicarlos para alistar las tablas.  
 
 # COMMAND ----------
 
@@ -155,8 +158,8 @@ try:
     ldgr_data = ldgr_src.setup_data(ldgr_prep)
 
     ldgr_data.display()
-except: 
-    ldgr_data = None
+except:                     # pylint: disable=bare-except
+    ldgr_data = None        # pylint: disable=invalid-name
 
 
 # COMMAND ----------
@@ -174,8 +177,8 @@ try:
     c4b_data = c4b_src.setup_data(c4b_prep)
 
     c4b_data.display()
-except: 
-    c4b_data = None
+except:                 # pylint: disable=bare-except 
+    c4b_data = None     # pylint: disable=invalid-name
 
 
 # COMMAND ----------
@@ -207,26 +210,12 @@ diffs_036  = report_036.filter_checks(base_036, '~valida')
 fpsl_036   = report_036.filter_checks(base_036, ['fpsl', 'indeterminada'])
 c4b_036    = report_036.filter_checks(base_036, ['c4b',  'indeterminada'])
 
-if False: 
-    write_datalake(base_036, f"{dir_036}/compare/{r_date}_036_comparativo.csv", 
-        spark=spark, overwrite=True)
-    write_datalake(diffs_036, f"{dir_036}/discrepancies/{r_date}_036_discrepancias.csv", 
-        spark=spark, overwrite=True)
-    write_datalake(fpsl_036, f"{dir_036}/subledger/{r_date}_036_fpsl.csv", 
-        spark=spark, overwrite=True)
-    write_datalake(c4b_036, f"{dir_036}/cloud-banking/{r_date}_036_c4b.csv", 
-        spark=spark, overwrite=True)
+base_036.save_as_file(f"{dir_036}/compare/{r_date}_036_comparativo.csv")
+diffs_036.save_as_file(f"{dir_036}/discrepancies/{r_date}_036_discrepancias.csv")
+fpsl_036.save_as_file(f"{dir_036}/subledger/{r_date}_036_fpsl.csv")
+c4b_036.save_as_file(f"{dir_036}/cloud-banking/{r_date}_036_c4b.csv")
 
 base_036.display()
-
-
-
-# COMMAND ----------
-
-from pathlib import Path
-a_file = f"{dir_036}/compare/{r_date}_036_comparativo.csv"
-tmp_dir = str(Path(a_file).parent/'tmp')
-base_036.write.mode('overwrite').csv(tmp_dir)
 
 # COMMAND ----------
 
@@ -239,9 +228,6 @@ base_036.write.mode('overwrite').csv(tmp_dir)
 
 # COMMAND ----------
 
-from json import dumps
-dumps2 = lambda xx: dumps(xx, default=str)
-
 for kk, vv in which_files.items(): 
     print(f"{kk}\t:{dumps2(vv)}")
 
@@ -252,5 +238,5 @@ if c4b_data is None:
     print(f"No se encontró C4B correspondiente a {dumps2(which_files['cloud-banking'])}.")
 
 if base_036 is None: 
-    print(f"No se concluyó el reporte 036.")
+    print("No se concluyó el reporte 036.")
     

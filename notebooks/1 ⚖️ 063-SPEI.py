@@ -1,4 +1,4 @@
-# Databricks notebook source
+# Databricks notebook source    # pylint: disable=missing-module-docstring
 # MAGIC %md
 # MAGIC ## Introducción
 # MAGIC El objetivo de este notebook es correr los scripts para ejecutar las conciliaciones. 
@@ -19,12 +19,12 @@
 
 # COMMAND ----------
 
-from collections import OrderedDict
-from datetime import datetime as dt, timedelta as delta, date
-from pytz import timezone
+# pylint: disable=wrong-import-order,wrong-import-position
+from datetime import datetime as dt, timedelta as delta
+from pytz import timezone as tz
 
-from pyspark.dbutils import DBUtils
-from pyspark.sql import SparkSession, functions as F, types as T
+from pyspark.dbutils import DBUtils     # pylint: disable=no-name-in-module,import-error
+from pyspark.sql import SparkSession, functions as F
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
@@ -36,43 +36,41 @@ dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
-fecha_manual = False
-imprimir = True
+now_mx = dt.now(tz('America/Mexico_City'))      # pylint: disable=invalid-name
+yday = now_mx.date() - delta(days=1) 
+dbutils.widgets.text('date', yday.strftime('%Y-%m-%d'))
+dbutils.widgets.text('c4b_spei', 'C4B5_01')
+dbutils.widgets.text('recoif', '900002')
 
-if fecha_manual:
-    yday_ish = date(2023, 7, 28)   
-    print(f"Revisa la fecha: [{yday_ish.strftime('%d-%b-%Y')}]") 
-else: 
-    now_mx = dt.now(timezone('America/Mexico_City'))
-    yday_ish = now_mx.date() - delta(days=1)  
+# COMMAND ----------
 
-# ya se hizo un pequeño desorden cuando se cambiaron fechas y áreas bancarias.  
+r_date = dt.strptime(dbutils.widgets.get('date'), '%Y-%m-%d')
+c4b_key = dbutils.widgets.get('c4b_spei')
+recoif_key = dbutils.widgets.get('recoif')
+
 which_files = {
-    'spei-banking' : {'date': yday_ish, 'key2': 'C4B5_01'}, # CB15 S4B1_01
-    'spei-ledger'  : {'date': yday_ish, 'key' : '900002' }} # '900002'
-
-key_date_ops  = yday_ish
-key_date_spei = yday_ish
+    'cloud-banking': dict(date=r_date, key=c4b_key),  
+    'subledger'    : dict(date=r_date, key=recoif_key)} 
 
 # COMMAND ----------
 
 from importlib import reload
-import epic_py; reload(epic_py)
-import src; reload(src)
-import config; reload(config)
+import epic_py; reload(epic_py)     # pylint: disable=multiple-statements
+import src; reload(src)     # pylint: disable=multiple-statements
+import config; reload(config)     # pylint: disable=multiple-statements
 
-from epic_py.delta import EpicDF
 from epic_py.tools import dirfiles_df
-from src.tools import write_datalake
 from src.sftp_sources import process_files
-from config import (t_agent, t_resources,
-    # ConfigEnviron, ENV, SERVER, RESOURCE_SETUP, 
-    DATALAKE_PATHS as paths)
+from src.conciliation import Sourcer, Conciliator, get_source_path
 
-t_storage = t_resources['storage']
+from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
+from refs.layouts import conciliations as c_layouts
+
+t_storage = t_resourcer['storage']
 t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')
+t_resourcer.set_dbks_permissions(t_permissions)
 
-λ_address = (lambda cc, pp : t_resources.get_resource_url(
+λ_address = (lambda cc, pp : t_resourcer.get_resource_url(
     'abfss', 'storage', container=cc, blob_path=pp))
 
 at_banking = λ_address('bronze', paths['spei-c4b'])
@@ -96,9 +94,12 @@ print(f"""
 # MAGIC %md  
 # MAGIC
 # MAGIC - Las fuentes de datos que utilizamos se alojan en carpetas del _datalake_.  
-# MAGIC - Los archivos de las carpetas tienen metadatos en sus nombres, que se extraen en la subsección `Regex Carpetas`.  
-# MAGIC - Además los archivos consisten de datos tabulares cuyos esquemas se construyen en la sección correspondiente.  
-# MAGIC - Finalmente se procesa cada una de las fuentes, de acuerdo a la llave de identificación, su descripción y el sistema al que pertenece.    
+# MAGIC - Los archivos de las carpetas tienen metadatos en sus nombres, que se extraen en la 
+# MAGIC subsección `Regex Carpetas`.  
+# MAGIC - Además los archivos consisten de datos tabulares cuyos esquemas se construyen en la 
+# MAGIC sección correspondiente.  
+# MAGIC - Finalmente se procesa cada una de las fuentes, de acuerdo a la llave de identificación, 
+# MAGIC su descripción y el sistema al que pertenece.    
 # MAGIC   + `subledger`; sistema contable operativo; FPSL de SAP (_financial product subleger_),    
 # MAGIC   + `cloud-banking`; sistema operativo general; C4B de SAP (tal cual _cloud for banking_),  
 # MAGIC   + `spei-ledger`; sistema contable de transferencias electrónicas;   
@@ -115,93 +116,6 @@ print(f"""
 # MAGIC #### Manipulación de columnas
 
 # COMMAND ----------
-
-spei_gfb = {  # RECOIF
-    'name': 'spei-subledger', 
-    'alias': 'gfb', 
-    'options': dict(mode='PERMISIVE', sep=';', header=False), 
-    'schema' : OrderedDict({
-        'extra': 'str', 'cep_issuer': 'int_2', 'account_id': 'long', 'account_digital': 'long', 
-        'clabe': 'long', 'receiver_channel': 'str', 'receiver_service': 'str', 
-        'txn_amount': 'dbl', 'txn_status': 'str', 'rejection_reason': 'str', 
-        'sender_bank': 'str', 'date_added': 'str', 'receiver_name': 'str', 
-        'receiver_account': 'long', 
-        'receiver_clabe': 'long', 'receiver_rfc': 'str', 'concept': 'str', 'reference': 'str', 
-        'tracking_key': 'str', 'uuid': 'str', 'status': 'str', 'posting_date': 'date'}), 
-    'mutate': {
-        'txn_valid'     : F.lit(True),             
-        'ref_num'       : F.col('tracking_key'),   
-        'account_num'   : F.col('account_digital'), 
-        'txn_type_code' : F.when(F.col('receiver_service') == 'EMISION SPEI' , '500402')
-                           .when(F.col('receiver_service') == 'SPEI RECIBIDO', '550403')
-                           .otherwise(F.col('receiver_service')), 
-        'txn_amount'    : F.col('txn_amount'), 
-        'txn_status'    : F.col('status'),  
-        'txn_date_gfb'  : F.to_date('posting_date', 'yyyy-MM-dd')}, 
-    'match': {
-        'where': [F.col('txn_valid')], 
-        'by'   : ['ref_num', 'account_num', 'txn_type_code'], 
-        'agg'  : {
-            'gfb_status'  : F.first('txn_status'), 
-            'gfb_num_txns': F.count('*'), 
-            'gfb_monto'   : F.round(F.sum('txn_amount'), 2)}}}
-    
-spei_c4b = {
-    'name': 'spei-banking', 
-    'alias': 'c4b', 
-    'options': dict(mode='PERMISIVE', sep='|', header=False, 
-            dateFormat='d-M-y', timestampFormat='d/M/y H:m:s'), 
-    'schema': OrderedDict({
-        'account_c4b': 'str', 'txn_type_code': 'str', 
-        'txn_type': 'str', 'txn_postdate': 'ts', 
-        'amount_local': 'dbl', # 'AMOUNT_CENTS': 'str',  
-        # Vienen en formato europeo así que lo separamos y ajustamos. 
-        'currency': 'str', 'txn_id': 'str', 
-        'type_code': 'int', 'type_name': 'str', 
-        'pymt_type': 'str', 'pymt_type_code': 'str', 'comm_channel_code': 'str', 
-        'comm_channel': 'str', 'acct_projection': 'str', 'product_id': 'str', 
-        'holder_id': 'long', 'debit_indicator': 'str', 
-        'value_date': 'ts', 'creation_user': 'long', 'release_user': 'long', 
-        'counter_holder': 'str', 'counter_bank_id': 'int', 'counter_account_id': 'long', 
-        'counter_account': 'int', 'counter_bank_country': 'str', 'pymt_order_id': 'str', 
-        'pymt_item_id': 'str', 'ref_adjust_txn_id': 'str', 
-        'cancel_document': 'str', 'pymt_notes': 'str', 'end_to_end': 'str', 
-        'ref_number': 'str', 'txn_status_code': 'int', 
-        'txn_status': 'str', 'acct_holder_name': 'str', 
-        'acct_holder_tax_id': 'str', 'cntr_party_tax_id': 'str', 
-        'fee_amount': 'dbl', 'fee_currency': 'str', 
-        'vat_amount': 'dbl', 'vat_currency': 'str'}), 
-    'mutate': {
-        'txn_postdate' : F.col('txn_postdate').cast('date'), 
-        'value_date'   : F.col('value_date').cast('date'),
-        'txn_valid'    : F.col('txn_status') != 'Posting Canceled',  # Filtrar
-        'ref_num'      : F.col('end_to_end'),
-        'account_num'  : F.substring(F.col('account_c4b'), 1, 11).cast('long'), 
-        'txn_type_code': F.col('txn_type_code'),  
-        'txn_amount'   : F.col('amount_local'), # Comparar. 
-        'txn_date'     : F.col('txn_postdate'), 
-        'txn_status'   : F.when(F.col('txn_status') == 'Posted', 'P')
-                .otherwise(F.col('txn_status'))}, 
-    'match': {
-        'where': [F.col('txn_valid')], 
-        'by'   : ['ref_num', 'account_num', 'txn_type_code'], 
-        'agg'  : {
-            'c4b_num_txns': F.count('*'), 
-            'c4b_monto'   : F.round(F.sum('txn_amount'), 2)}}
-}
-
-spei_2 = { # Este es Viejo, no estoy -DX- seguro de dónde.  
-    'schema': {  
-        'txn_code': 'str', 'txn_date': 'date', 'txn_time': 'str', 
-        'txn_amount': 'dbl', 'ref_num': 'str', 'trck_code': 'str', 'sender_account': 'long', 
-        'clabe_account': 'long', 'sender_name': 'str', 'sender_id': 'long', 'txn_description': 'str', 
-        'receiver_bank_id': 'int', 'receiver_account': 'long', 'receiver_name': 'str', 
-        'txn_geolocation': 'str', 'txn_status': 'int', 'resp_code': 'int'}, 
-    'options': dict(mode='PERMISIVE', sep='|', header=False, dateFormat='d-M-y')
-}
-
-# COMMAND ----------
-
 # MAGIC %md
 # MAGIC #### c. SPEI-GFB
 
@@ -209,7 +123,8 @@ spei_2 = { # Este es Viejo, no estoy -DX- seguro de dónde.
 
 # MAGIC %md 
 # MAGIC **Nota**  
-# MAGIC + Llamamos _ledger_ a la fuente de transacciones SPEI de Banorte (GFB), aunque no sea registro contable.  
+# MAGIC + Llamamos _ledger_ a la fuente de transacciones SPEI de Banorte (GFB), 
+# MAGIC aunque no sea registro contable.  
 # MAGIC   Esta fuente contiene el backlog de las transferencias SPEI.  
 # MAGIC + La clave `900002` significa algo muy importante, es el número que nos asigna Banorte.  
 # MAGIC + Sobre la hora, en el ejercicio inicial nos da todo `160323`.  
@@ -217,7 +132,7 @@ spei_2 = { # Este es Viejo, no estoy -DX- seguro de dónde.
 
 # COMMAND ----------
 
-since_when = yday_ish - delta(5)
+since_when = r_date - delta(5)
 
 pre_files_1   = dirfiles_df(at_ledger, spark)
 speigfb_files = process_files(pre_files_1, 'spei-ledger')
@@ -281,15 +196,10 @@ pre_files_0.sort_values('date', ascending=False)  #.query(f"date >= '{since_when
 # MAGIC Utilizamos una llave general de fecha `key_date` para leer los archivos de las 4 fuentes.  
 # MAGIC Para cada fuente seguimos el procedimiento:  
 # MAGIC     - Identificar un archivo, y sólo uno, con la fecha proporcionada.  
-# MAGIC     - Leer los datos de acuerdo a las especificaciones definidas en la sección anterior, y mostrar la tabla correspondiente.  
-# MAGIC     - Definir modificaciones de acuerdo a los propios reportes de conciliación, y aplicarlos para alistar las tablas.  
-
-# COMMAND ----------
-
-from importlib import reload
-from src import conciliation; reload(conciliation)
-
-from src.conciliation import Sourcer, Conciliator as conciliate, get_source_path
+# MAGIC     - Leer los datos de acuerdo a las especificaciones definidas en la sección anterior,
+# MAGIC y mostrar la tabla correspondiente.  
+# MAGIC     - Definir modificaciones de acuerdo a los propios reportes de conciliación, 
+# MAGIC y aplicarlos para alistar las tablas.  
 
 # COMMAND ----------
 
@@ -304,7 +214,7 @@ speigfb_files.sort_values('date', ascending=False)
 
 gfb_path = get_source_path(speigfb_files, which_files['spei-ledger'])
 
-gfb_src  = Sourcer(gfb_path, **spei_gfb)
+gfb_src  = Sourcer(gfb_path, **c_layouts.gfb_spei_specs)
 gfb_prep = gfb_src.start_data(spark)
 gfb_data = gfb_src.setup_data(gfb_prep)
 
@@ -321,7 +231,7 @@ gfb_data.display()
 
 c4b_path = get_source_path(speic4b_files, which_files['spei-banking'])
 
-c4b_src  = Sourcer(c4b_path, **spei_c4b)
+c4b_src  = Sourcer(c4b_path, **c_layouts.c4b_spei_specs)
 c4b_prep = c4b_src.start_data(spark)
 c4b_data = c4b_src.setup_data(c4b_prep)
 c4b_data.display()
@@ -347,22 +257,16 @@ check_txns = {
     'c4b'   : (F.col('c4b_num_txns') == 0) | (F.col('c4b_num_txns').isNull()), 
     'indeterminada': None}
 
-report_063 = conciliate(gfb_src, c4b_src, check_txns)
+report_063 = Conciliator(gfb_src, c4b_src, check_txns)
 base_063   = report_063.base_match(gfb_data, c4b_data)
 diffs_063  = report_063.filter_checks(base_063, '~valida')
 gfb_063    = report_063.filter_checks(base_063, ['gfb', 'indeterminada'])
 c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
-
-if imprimir: 
-    write_datalake(base_063, spark=spark, overwrite=True, 
-            a_path=f"{dir_063}/compare/{key_date_ops}_063_comparativo.csv")
-    write_datalake(diffs_063, spark=spark, overwrite=True, 
-            a_path=f"{dir_063}/discrepancies/{key_date_ops}_063_discrepancias.csv")
-    write_datalake(gfb_063, spark=spark, overwrite=True,
-            a_path=f"{dir_063}/subledger/{key_date_ops}_063_spei-gfb.csv")
-    write_datalake(c4b_063, spark=spark, overwrite=True,
-            a_path=f"{dir_063}/cloud-banking/{key_date_ops}_063_spei-c4b.csv")
+base_063.save_as_file(f"{dir_063}/compare/{r_date}_063_comparativo.csv")
+diffs_063.save_as_file(f"{dir_063}/discrepancies/{r_date}_063_discrepancias.csv")
+gfb_063.save_as_file(f"{dir_063}/subledger/{r_date}_063_spei-gfb.csv")
+c4b_063.save_as_file(f"{dir_063}/cloud-banking/{r_date}_063_spei-c4b.csv")
 
 
 # COMMAND ----------
@@ -389,4 +293,4 @@ if c4b_data is None:
     print(f"No se encontró SPEI-C4B correspondiente a {dumps2(which_files['spei-banking'])}.")
 
 if base_063 is None: 
-    print(f"No se concluyó el reporte 063.")
+    print("No se concluyó el reporte 063.")

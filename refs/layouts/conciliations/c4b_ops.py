@@ -1,4 +1,4 @@
-
+# pylint: disable=missing-module-docstring
 from collections import OrderedDict
 
 from pyspark.sql import functions as F
