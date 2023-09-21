@@ -44,9 +44,7 @@ dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
-now_mx = dt.now(tz('America/Mexico_City'))      # pylint: disable=invalid-name
-yday = now_mx.date() - delta(days=1) 
-dbutils.widgets.text('date', yday.strftime('%Y-%m-%d'))
+dbutils.widgets.text('date', '2023-01-01')
 dbutils.widgets.text('c4b_spei', 'C4B5_01')
 dbutils.widgets.text('recoif', '900002')
 
@@ -67,10 +65,15 @@ tmp_parent = compose_left(
     partial2(add, ..., ['tmp',]), 
     '/'.join)
 
-s_date = dbutils.widgets.get('date')
-r_date = dt.strptime(s_date, '%Y-%m-%d')
 c4b_key = dbutils.widgets.get('c4b_spei')
 recoif_key = dbutils.widgets.get('recoif')
+w_date = dbutils.widgets.get('date')
+
+now_mx = dt.now(tz('America/Mexico_City'))      # pylint: disable=invalid-name
+yday = now_mx.date() - delta(days=1) 
+y_date = yday.strftime('%Y-%m-%d')
+s_date = w_date if w_date != '2023-01-01' else y_date
+r_date = dt.strptime(s_date, '%Y-%m-%d')
 
 print(f"""
     SPEI-C4B : {at_banking}

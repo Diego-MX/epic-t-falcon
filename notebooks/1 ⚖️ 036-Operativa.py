@@ -46,9 +46,7 @@ dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
-now_mx = dt.now(tz('America/Mexico_City'))
-yday = now_mx.date() - delta(days=1) 
-dbutils.widgets.text('date', yday.strftime('%Y-%m-%d'))
+dbutils.widgets.text('date', '2023-01-01')
 dbutils.widgets.combobox('c4b',  'CC4B5', 
     ['CC4B2', 'CC4B3', 'CC4B5', 'CCB14', 'CCB15', 'CS4B1', 'FZE02'])
 dbutils.widgets.combobox('fpsl', 'FZE07', 
@@ -71,10 +69,15 @@ tmp_parent = compose_left(
     partial2(add, ..., ['tmp',]), 
     '/'.join)
 
-s_date = dbutils.widgets.get('date')
-r_date = dt.strptime(s_date, '%Y-%m-%d')
+now_mx = dt.now(tz('America/Mexico_City'))
+yday = now_mx.date() - delta(days=1) 
+y_date = yday.strftime('%Y-%m-%d')
+
 c4b_key = dbutils.widgets.get('c4b')
 fpsl_key = dbutils.widgets.get('fpsl')
+w_date = dbutils.widgets.get('date')
+s_date = w_date if w_date != '2023-01-01' else y_date
+r_date = dt.strptime(s_date, '%Y-%m-%d')
 
 # COMMAND ----------
 
