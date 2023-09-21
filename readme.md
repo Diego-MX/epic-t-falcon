@@ -12,17 +12,15 @@ Entonces utiliza los siguientes recursos:
   Las credenciales se guardan en el _scope_:  
   `aad-tenant-id`, `sp-ops-conciliations-subscription`, `sp-ops-conciliations-client`, `sp-ops-conciliations-secret`.  
 
+* Acceder al contenedor del _datalake_ `stlakehylia<env>`.  
+  Asignar acceso al principado en las carpetas:  
+  - `ops/{account-management,card-management,core-banking,fraude,regulatory}`
+  
+  cada una en (algunos de) los contenedores `raw` 🥩, `bronze` 🥉, `silver` 🥈, `gold` 🥇.  
+
 * Acceder al _metastore_ `sqlserver-lakehylia-data-<env>`.  
   Crear un usuario y guardar credenciales en el _scope_:  
   `ops-conciliations-metastore-user`, `ops-conciliatons-metastore-pass`.  
-
-* Acceder al contenedor del _datalake_ `stlakehylia<env>`.  
-  Asignar acceso al principado en las carpetas:  
-  - `ops/regulatory/card-management/transformation-layer`   
-  - `ops/card-management/datasets`   
-  - `ops/transactions/spei`   
-
-  cada una en (algunos de) los contenedores `raw` 🥩, `bronze` 🥉, `silver` 🥈, `gold` 🥇.  
 
 * (Reservamos este espacio para el listado de tablas que se crean/utilizan en el _metastore_.)  
 
@@ -58,19 +56,9 @@ El esquema general es:
   Incluye el archivo `__init__.py` para importarlo como módulo.  
   
 4. La carpeta de _notebooks_ contiene los mismos con el propósito de ejecutarse como _jobs_.   
-  Utili(za|cemos) la siguiente nomenclatura:  
-  - Si el archivo es experimental, iniciar el nombre del _notebook_ con las iniciales del autor:   
-    Ejemplo: `dv revisar conexión sftp`  
-  - Si el archivo está listo para ejecutarse regularmente, llamar con un índice entero de orden de ejecución:  
-    `1 Extract_file carga archivos fuente a tablas delta en zona bronze`  
-    `1 carga datos fuente 2`  
-    `2 resumir datos por usuario`   
-    `3 programar schedule para los Notebooks (1 y 3 meses)`
 
 
-# Secuencia técnica  
 
-En la continuación del desarrollo de este módulo colaborativo describimos los _notebooks_ y módulos q
 
 [runbook]: https://bineo.atlassian.net/wiki/spaces/~6282a2fbd9ddcc006e9c3438/pages/1725595654/Conciliaciones+-+runbook
 
