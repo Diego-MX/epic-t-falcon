@@ -71,7 +71,8 @@ tmp_parent = compose_left(
     partial2(add, ..., ['tmp',]), 
     '/'.join)
 
-r_date = dt.strptime(dbutils.widgets.get('date'), '%Y-%m-%d')
+s_date = dbutils.widgets.get('date')
+r_date = dt.strptime(s_date, '%Y-%m-%d')
 c4b_key = dbutils.widgets.get('c4b')
 fpsl_key = dbutils.widgets.get('fpsl')
 
@@ -205,10 +206,10 @@ c4b_036    = report_036.filter_checks(base_036, ['c4b',  'indeterminada'])
 
 two_paths = juxt(identity, tmp_parent)
 
-base_036.save_as_file( *two_paths(f"{dir_036}/compare/{r_date}_036_comparativo.csv"))
-diffs_036.save_as_file(*two_paths(f"{dir_036}/discrepancies/{r_date}_036_discrepancias.csv"))
-fpsl_036.save_as_file( *two_paths(f"{dir_036}/subledger/{r_date}_036_fpsl.csv"))
-c4b_036.save_as_file(  *two_paths(f"{dir_036}/cloud-banking/{r_date}_036_c4b.csv"))
+base_036.save_as_file( *two_paths(f"{dir_036}/compare/{s_date}_036_comparativo.csv"))
+diffs_036.save_as_file(*two_paths(f"{dir_036}/discrepancies/{s_date}_036_discrepancias.csv"))
+fpsl_036.save_as_file( *two_paths(f"{dir_036}/subledger/{s_date}_036_fpsl.csv"))
+c4b_036.save_as_file(  *two_paths(f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv"))
 
 # COMMAND ----------
 

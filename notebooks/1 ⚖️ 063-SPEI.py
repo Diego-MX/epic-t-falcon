@@ -54,8 +54,7 @@ dbutils.widgets.text('recoif', '900002')
 
 t_storage = t_resourcer['storage']
 t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')
-t_resourcer.set_dbks_permissions(t_permissions)
-
+# t_resourcer.set_dbks_permissions(t_permissions)
 λ_address = (lambda cc, pp : t_resourcer.get_resource_url(
     'abfss', 'storage', container=cc, blob_path=pp))
 
@@ -68,7 +67,8 @@ tmp_parent = compose_left(
     partial2(add, ..., ['tmp',]), 
     '/'.join)
 
-r_date = dt.strptime(dbutils.widgets.get('date'), '%Y-%m-%d')
+s_date = dbutils.widgets.get('date')
+r_date = dt.strptime(s_date, '%Y-%m-%d')
 c4b_key = dbutils.widgets.get('c4b_spei')
 recoif_key = dbutils.widgets.get('recoif')
 
@@ -248,10 +248,10 @@ c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
 two_paths = juxt(identity, tmp_parent)
 
-base_063.save_as_file(*two_paths(f"{dir_063}/compare/{r_date}_063_comparativo.csv"))
-diffs_063.save_as_file(*two_paths(f"{dir_063}/discrepancies/{r_date}_063_discrepancias.csv"))
-gfb_063.save_as_file(*two_paths(f"{dir_063}/subledger/{r_date}_063_spei-gfb.csv"))
-c4b_063.save_as_file(*two_paths(f"{dir_063}/cloud-banking/{r_date}_063_spei-c4b.csv"))
+base_063.save_as_file(*two_paths(f"{dir_063}/compare/{s_date}_063_comparativo.csv"))
+diffs_063.save_as_file(*two_paths(f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv"))
+gfb_063.save_as_file(*two_paths(f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv"))
+c4b_063.save_as_file(*two_paths(f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv"))
 
 
 # COMMAND ----------
