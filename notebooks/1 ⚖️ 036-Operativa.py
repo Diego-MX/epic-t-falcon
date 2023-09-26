@@ -31,8 +31,7 @@ from pytz import timezone as tz
 from warnings import warn
 
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
-from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
+from pyspark.sql import functions as F, types as T, SparkSession
 from toolz import compose_left, identity, juxt
 
 from epic_py.tools import dirfiles_df, partial2
@@ -46,11 +45,12 @@ dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
-dbutils.widgets.text('date', '2023-01-01')
-dbutils.widgets.combobox('c4b',  'CC4B5', 
-    ['CC4B2', 'CC4B3', 'CC4B5', 'CCB14', 'CCB15', 'CS4B1', 'FZE02'])
-dbutils.widgets.combobox('fpsl', 'FZE07', 
-    ['FZE01', 'FZE02', 'FZE03', 'FZE04', 'FZE05', 'FZE06', 'FZE07', 'FZE08', 'F1106'])
+dbutils.widgets.text('date', 'yyyy-mm-dd')
+dbutils.widgets.combobox('c4b',  'CC4B5', [
+    'CC4B2', 'CC4B3', 'CC4B5', 'CCB14', 'CCB15', 'CS4B1', 'FZE02'])
+dbutils.widgets.combobox('fpsl', 'FZE07', [
+    'FZE01', 'FZE02', 'FZE03', 'FZE04', 'FZE05', 
+    'FZE06', 'FZE07', 'FZE08', 'F1106'])
 
 # COMMAND ----------
 
@@ -65,7 +65,7 @@ to_reports       = λ_address('gold', 'reports2')
 
 dumps2 = lambda xx: dumps(xx, default=str)
 tmp_parent = compose_left(
-    ϱ('split', '/'), itemgetter(slice(0,-1)), 
+    ϱ('split', '/'), itemgetter(slice(0, -1)), 
     partial2(add, ..., ['tmp',]), 
     '/'.join)
 
@@ -76,7 +76,7 @@ y_date = yday.strftime('%Y-%m-%d')
 c4b_key = dbutils.widgets.get('c4b')
 fpsl_key = dbutils.widgets.get('fpsl')
 w_date = dbutils.widgets.get('date')
-s_date = w_date if w_date != '2023-01-01' else y_date
+s_date = w_date if w_date != 'yyyy-mm-dd' else y_date
 r_date = dt.strptime(s_date, '%Y-%m-%d')
 
 # COMMAND ----------
@@ -107,33 +107,33 @@ r_date = dt.strptime(s_date, '%Y-%m-%d')
 
 # COMMAND ----------
 
-# MAGIC %md 
-# MAGIC #### a. Subldedger (FPSL)
-
-# COMMAND ----------
-
-data_src   = 'subledger'    # pylint: disable=invalid-name 
-
-files_0 = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
-files_1 = process_files(files_0, data_src)
-ldgr_results = files_matcher(files_1, dict(date=r_date, key=fpsl_key))
-(ldgr_files, ldgr_path, ldgr_status) = ldgr_results
-ldgr_files.query('matcher > 0')
-
-# COMMAND ----------
-
 # MAGIC %md
-# MAGIC #### b. Cloud Banking (C4B)
+# MAGIC ### i. Cloud Banking (C4B)
 
 # COMMAND ----------
 
-data_src  = 'cloud-banking'     # pylint: disable=invalid-name
-files_0 = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
-files_1 = process_files(files_0, data_src)
+src_0 = 'cloud-banking'     # pylint: disable=invalid-name
+files_0 = dirfiles_df(f"{at_conciliations}/{src_0}", spark)
+files_1 = process_files(files_0, src_0)
 
 c4b_results = files_matcher(files_1, dict(date=r_date, key=c4b_key))
 (c4b_files, c4b_path, c4b_status) = c4b_results
 c4b_files.query('matcher > 0')
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ### ii. Subldedger (FPSL)
+
+# COMMAND ----------
+
+src_1 = 'subledger'    # pylint: disable=invalid-name 
+
+files_0 = dirfiles_df(f"{at_conciliations}/{src_1}", spark)
+files_1 = process_files(files_0, src_1)
+ldgr_results = files_matcher(files_1, dict(date=r_date, key=fpsl_key))
+(ldgr_files, ldgr_path, ldgr_status) = ldgr_results
+ldgr_files.query('matcher > 0')
 
 # COMMAND ----------
 
@@ -155,6 +155,43 @@ c4b_files.query('matcher > 0')
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ### b. Cloud Banking (C4B)
+
+# COMMAND ----------
+
+from pyspark.sql import Row
+def name_item(names): 
+    λ_name = lambda k_v: dict(zip(names, k_v))
+    return λ_name 
+
+prod_name = lambda k_v: Row(tipo_prod=k_v[0], ACCOUNTPRODUCTID=k_v[1])
+prod_dict = {
+    'EPC_OP_MAX': 'EPC_OP_MAX', 
+    'EPC_TA_MAX': 'EPC_TA_MA1',
+    'EPC_LA_PER': 'EPC_LA_PE1'}
+
+fpsl_acct = {
+    '1505040000': None,
+    '2136013700': None,
+    '2315040100': None,
+    '5206041001': None,
+    '5216110501': None,
+    '5216110503': None,
+    '9101050100': None}
+    
+prod_df = spark.createDataFrame([name_item(('tipo_prod', 'ACCOUNTPRODUCTID'))(p_item) 
+        for p_item in prod_dict.items()])
+
+c4b_src = Sourcer(c4b_path, **c_layouts.c4b_specs)
+c4b_prep = c4b_src.start_data(spark)
+c4b_data = (c4b_src.setup_data(c4b_prep)
+    .join(prod_df, on='ACCOUNTPRODUCTID', how='left'))
+
+c4b_data.display()
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ### a. Subledger (FPSL)
 
 # COMMAND ----------
@@ -163,30 +200,12 @@ ldgr_src = Sourcer(ldgr_path, **c_layouts.fpsl_specs)
 ldgr_prep = ldgr_src.start_data(spark)
 ldgr_data = ldgr_src.setup_data(ldgr_prep)
 
-ldgr_data.display()
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### b. Cloud Banking (C4B)
-
-# COMMAND ----------
-
-c4b_src = Sourcer(c4b_path, **c_layouts.c4b_specs)
-c4b_prep = c4b_src.start_data(spark)
-c4b_data = c4b_src.setup_data(c4b_prep)
-
-c4b_data.display()
+ldgr_data.filter('txn_valid').display()
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## 3. Reportes y escrituras
-
-# COMMAND ----------
-
-# MAGIC %md 
-# MAGIC ### a. (036) Operativa
 
 # COMMAND ----------
 
@@ -201,18 +220,27 @@ check_txns = OrderedDict({
     'fpsl':   (F.col( 'c4b_num_txns') == 0) | (F.col( 'c4b_num_txns').isNull()), 
     'indeterminada': None})
 
-report_036 = Conciliator(ldgr_src, c4b_src, check_txns)
-base_036   = report_036.base_match(ldgr_data, c4b_data)
+# Extras: no es muy formal, pero es muy práctico. 
+fpsl_cuenta = (ldgr_data
+    .filter('txn_valid')
+    .select('cuenta_fpsl', 'num_cuenta', 'clave_txn', 'tipo_prod')
+    .distinct())
+
+report_036 = Conciliator(c4b_src, ldgr_src, check_txns)
+base_036   = report_036.base_match(c4b_data, ldgr_data)
 diffs_036  = report_036.filter_checks(base_036, '~valida')
-fpsl_036   = report_036.filter_checks(base_036, ['fpsl', 'indeterminada'])
-c4b_036    = report_036.filter_checks(base_036, ['c4b',  'indeterminada'])
+fpsl_036   = report_036.filter_checks(base_036, ['fpsl', 'indeterminada'], join_alias='subledger')
+c4b_036    = report_036.filter_checks(base_036, ['c4b',  'indeterminada'], join_alias='cloud-banking')
+
+base_adj = (fpsl_cuenta
+    .join(base_036, how='right', 
+        on=['num_cuenta', 'clave_txn', 'tipo_prod']))
 
 two_paths = juxt(identity, tmp_parent)
-
-base_036.save_as_file( *two_paths(f"{dir_036}/compare/{s_date}_036_comparativo.csv"))
+base_adj.save_as_file(*two_paths(f"{dir_036}/compare/{s_date}_036_comparativo.csv"))
 diffs_036.save_as_file(*two_paths(f"{dir_036}/discrepancies/{s_date}_036_discrepancias.csv"))
-fpsl_036.save_as_file( *two_paths(f"{dir_036}/subledger/{s_date}_036_fpsl.csv"))
-c4b_036.save_as_file(  *two_paths(f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv"))
+fpsl_036.save_as_file(*two_paths(f"{dir_036}/subledger/{s_date}_036_fpsl.csv"))
+c4b_036.save_as_file(*two_paths(f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv"))
 
 # COMMAND ----------
 
@@ -222,3 +250,10 @@ c4b_036.save_as_file(  *two_paths(f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv
 # MAGIC Aquí vemos algunos de los resultados claves de le ejecución:  
 # MAGIC - Procesos que no se concluyeron.  
 # MAGIC - Resumenes de los que sí.  
+
+# COMMAND ----------
+
+(base_036
+    .groupBy('check_key')
+    .count()
+    .display())

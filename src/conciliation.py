@@ -36,7 +36,6 @@ class Sourcer():
             'int_2': lambda cc: F.trim(cc).cast('int')}
         prepare_cols = {kk: typer[vv](F.col(kk))
             for kk, vv in self.schema.items() if vv in typer}
-
         df_1 = (a_df
             .with_column_plus(prepare_cols)
             .with_column_plus(self.mutate))
@@ -91,17 +90,15 @@ class Conciliator:
         self.base_data = the_join
         return the_join
     
-
-    def filter_checks(self, base_df:EpicDF=None, f_keys=[], j_alias=None): 
+    def filter_checks(self, base_df: EpicDF=None, f_keys=[], join_alias=None): 
         base_df = base_df or self.base_data
         key_filter = self._keys_to_column(f_keys)
-        j_df = self.data.get(j_alias)
+        j_df = self.data.get(join_alias)
 
         f_df = base_df.filter(key_filter)
-        if j_alias: 
-            f_df = f_df.join(j_df, 'left', self.by)
+        if join_alias: 
+            f_df = f_df.join(j_df, on=self.by, how='left')
         return f_df 
-
 
     def _keys_to_column(self, str_keys): 
         if isinstance(str_keys, list): 

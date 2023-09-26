@@ -1,7 +1,6 @@
 # pylint: disable=missing-module-docstring
 from collections import OrderedDict
-
-from pyspark.sql import functions as F
+from pyspark.sql import functions as F, SparkSession
 
 c4b_specs = {
     'name': 'cloud-banking',
@@ -33,10 +32,12 @@ c4b_specs = {
         'clave_txn'   : F.col('TRANSACTIONTYPECODE'),
         'moneda'      : F.col('CURRENCY'),
         'monto_txn'   : F.col('AMOUNT'),  # Suma y compara
-        'tipo_txn'    : F.col('TYPENAME')},  # Referencia, asociada a CLAVE_TXN.
+        'tipo_txn'    : F.col('TYPENAME'),  # Referencia, asociada a CLAVE_TXN.
+        },  # TIPO_PROD se obtiene del JOIN.  
+
     'match': {
         'where': [F.col('txn_valid')],
-        'by'   : ['num_cuenta', 'clave_txn', 'moneda'],
+        'by'   : ['num_cuenta', 'clave_txn', 'moneda', 'tipo_prod'],
         'agg'  : {
             'c4b_num_txns': F.count('*'),
             'c4b_monto'   : F.round(F.sum('monto_txn'), 2)}}
