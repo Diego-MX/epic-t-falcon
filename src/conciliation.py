@@ -14,12 +14,12 @@ schema_types = {
 class Sourcer(): 
     def __init__(self, path, **kwargs): 
         self.path = path
-        self.name  = kwargs.get('name' )
+        self.name = kwargs.get('name' )
         self.alias = kwargs.get('alias')
         self.options = kwargs.get('options',{})
-        self.mutate  = kwargs.get('mutate', {})
-        self.schema  = kwargs.get('schema', {})
-        self.match   = kwargs.get('match',  {})
+        self.mutate = kwargs.get('mutate', {})
+        self.schema = kwargs.get('schema', {})
+        self.match = kwargs.get('match',  {})
         
     def start_data(self, spark): 
         a_schema = self._prep_schema()
@@ -119,8 +119,7 @@ file_formats = {
     'cloud-banking' : r'CONCILIA(?P<key>\w+)(?P<date>\d{8})\.txt', 
     'spei-ledger'   : r'RECOIF(?P<key>\d+)(?P<date>\d{8})H(?P<time>\d{6})\.TXT',  
     'spei-banking'  : r'SPEI_FILE_(?P<key1>\w+)_(?P<date>\d{8})_?(?P<key2>\w*)\.txt', 
-    'spei2-banking' : r'SPEI_FILE_(?P<key1>\w+)_(?P<date>\d{8})_?(?P<key2>\w*)\.txt',
-}
+    'spei2-banking' : r'SPEI_FILE_(?P<key1>\w+)_(?P<date>\d{8})_?(?P<key2>\w*)\.txt'}
 
 date_formats = {
     'spei-ledger' : '%d%m%Y'}
@@ -163,7 +162,6 @@ def files_matcher(files_df, match_dict):
 # Aguas con esas definiciones.  
 
 def get_match_path(dir_df, file_keys): 
-    # Estos Matchers se usan para la función GET_MATCH_PATH, y luego READ_SOURCE_TABLE. 
     matchers_keys = {
         'subledger'     : ["key == 'FZE02'", "key == 'FZE03'"],  # FPSL
         'cloud-banking' : ["key == 'CC4B2'", "key == 'CCB15'"],  # C4B
