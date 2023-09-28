@@ -1,6 +1,15 @@
 # Databricks notebook source
-epicpy_tag = 'gh-1.2'  # pylint: disable=invalid-name
+# MAGIC %md
+# MAGIC ## Descripción
+# MAGIC Instalar requerimientos de librerías para los _notebooks_. 
 
+# COMMAND ----------
+
+# MAGIC %pip install -q -r ../reqs_dbks.txt
+
+# COMMAND ----------
+
+epicpy_tag = 'gh-1.2'  # pylint: disable=invalid-name
 # pylint: disable=wrong-import-position,wrong-import-order
 # pylint: disable=no-name-in-module,unspecified-encoding,import-error
 

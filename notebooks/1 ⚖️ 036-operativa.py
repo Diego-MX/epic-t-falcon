@@ -1,4 +1,4 @@
-# Databricks notebook source
+# Databricks notebook source        # pylint: disable=invalid-name,missing-module-docstring
 # MAGIC %md
 # MAGIC ## Introducción
 # MAGIC El objetivo de este notebook es correr los scripts para ejecutar las conciliaciones. 
@@ -19,26 +19,21 @@
 
 # COMMAND ----------
 
-# pylint: disable=wrong-import-position,missing-module-docstring,wrong-import-order
-from importlib import reload
-from src import conciliation; reload(conciliation)      # pylint: disable=multiple-statements
-
+# pylint: disable=wrong-import-position,wrong-import-order
 from collections import OrderedDict
 from datetime import datetime as dt, timedelta as delta
 from json import dumps
 from operator import add, itemgetter, methodcaller as ϱ
 from pytz import timezone as tz
-from warnings import warn
 
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
-from pyspark.sql import functions as F, types as T, SparkSession
+from pyspark.sql import functions as F, Row, SparkSession
 from toolz import compose_left, identity, juxt
 
 from epic_py.tools import dirfiles_df, partial2
-from src.conciliation import (Sourcer, Conciliator,
-    files_matcher, get_source_path, process_files)
-from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
+from src.conciliation import Sourcer, Conciliator, files_matcher, process_files
 from refs.layouts import conciliations as c_layouts
+from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
@@ -69,14 +64,15 @@ tmp_parent = compose_left(
     partial2(add, ..., ['tmp',]), 
     '/'.join)
 
-now_mx = dt.now(tz('America/Mexico_City'))
-yday = now_mx.date() - delta(days=1) 
-y_date = yday.strftime('%Y-%m-%d')
-
 c4b_key = dbutils.widgets.get('c4b')
 fpsl_key = dbutils.widgets.get('fpsl')
-w_date = dbutils.widgets.get('date')
-s_date = w_date if w_date != 'yyyy-mm-dd' else y_date
+s_date = dbutils.widgets.get('date')
+
+if s_date == 'yyyy-mm-dd':
+    now_mx = dt.now(tz('America/Mexico_City'))
+    yday = now_mx.date() - delta(days=1) 
+    s_date = yday.strftime('%Y-%m-%d')
+
 r_date = dt.strptime(s_date, '%Y-%m-%d')
 
 # COMMAND ----------
@@ -159,7 +155,6 @@ ldgr_files.query('matcher > 0')
 
 # COMMAND ----------
 
-from pyspark.sql import Row
 def name_item(names): 
     λ_name = lambda k_v: dict(zip(names, k_v))
     return λ_name 
@@ -229,18 +224,24 @@ fpsl_cuenta = (ldgr_data
 report_036 = Conciliator(c4b_src, ldgr_src, check_txns)
 base_036   = report_036.base_match(c4b_data, ldgr_data)
 diffs_036  = report_036.filter_checks(base_036, '~valida')
-fpsl_036   = report_036.filter_checks(base_036, ['fpsl', 'indeterminada'], join_alias='subledger')
-c4b_036    = report_036.filter_checks(base_036, ['c4b',  'indeterminada'], join_alias='cloud-banking')
+fpsl_036   = report_036.filter_checks(base_036, ['fpsl', 'indeterminada'], 
+    join_alias='subledger')
+c4b_036    = report_036.filter_checks(base_036, ['c4b',  'indeterminada'], 
+    join_alias='cloud-banking')
 
 base_adj = (fpsl_cuenta
     .join(base_036, how='right', 
         on=['num_cuenta', 'clave_txn', 'tipo_prod']))
 
 two_paths = juxt(identity, tmp_parent)
-base_adj.save_as_file(*two_paths(f"{dir_036}/compare/{s_date}_036_comparativo.csv"))
-diffs_036.save_as_file(*two_paths(f"{dir_036}/discrepancies/{s_date}_036_discrepancias.csv"))
-fpsl_036.save_as_file(*two_paths(f"{dir_036}/subledger/{s_date}_036_fpsl.csv"))
-c4b_036.save_as_file(*two_paths(f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv"))
+base_adj.save_as_file(*two_paths(f"{dir_036}/compare/{s_date}_036_comparativo.csv"),
+    header=True)
+diffs_036.save_as_file(*two_paths(f"{dir_036}/discrepancies/{s_date}_036_discrepancias.csv"),
+    header=True)
+fpsl_036.save_as_file(*two_paths(f"{dir_036}/subledger/{s_date}_036_fpsl.csv"),
+    header=True)
+c4b_036.save_as_file(*two_paths(f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv"),
+    header=True)
 
 # COMMAND ----------
 

@@ -14,8 +14,7 @@ Entonces utiliza los siguientes recursos:
 
 * Acceder al contenedor del _datalake_ `stlakehylia<env>`.  
   Asignar acceso al principado en las carpetas:  
-  - `ops/{account-management,card-management,core-banking,fraude,regulatory}`
-  
+  - `ops/{account-management,card-management,core-banking,fraude,regulatory}
   cada una en (algunos de) los contenedores `raw` 🥩, `bronze` 🥉, `silver` 🥈, `gold` 🥇.  
 
 * Acceder al _metastore_ `sqlserver-lakehylia-data-<env>`.  
