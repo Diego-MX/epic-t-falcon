@@ -16,7 +16,7 @@ load_dotenv('.env', override=True)
 # pylint: disable=missing-class-docstring
 # pylint: disable=non-ascii-name
 
-
+## Se solicitó un runbook nuevo para cambiar referencias de CORE a CONCILIATIONS. 
 SETUP_2 = {
     'dev': {},
     'qas': {
