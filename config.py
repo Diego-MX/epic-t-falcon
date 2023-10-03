@@ -2,6 +2,8 @@ from os import environ, getenv, remove
 from pathlib import Path
 import re
 
+HASH_OFFSET = 123456789
+
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from azure.storage.blob import BlobServiceClient

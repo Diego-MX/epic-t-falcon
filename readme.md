@@ -58,6 +58,10 @@ El esquema general es:
 
 
 
+<<<<<<< HEAD
+=======
+... por desarrollar  
+>>>>>>> 95c1c4393ccdb8462b4b6f4d6961f9f19b128692
 
 [runbook]: https://bineo.atlassian.net/wiki/spaces/~6282a2fbd9ddcc006e9c3438/pages/1725595654/Conciliaciones+-+runbook
 

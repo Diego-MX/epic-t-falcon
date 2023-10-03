@@ -298,6 +298,15 @@ ref_Δ.display()
 
 # COMMAND ----------
 
+dbutils.fs.ls('abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/card-management/datasets/')
+
+# COMMAND ----------
+
+# dbutils.fs.ls('abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/card-management/datasets/')
+ref_Δ.display()
+
+# COMMAND ----------
+
 # MAGIC %md 
 # MAGIC # Adjustments
 
