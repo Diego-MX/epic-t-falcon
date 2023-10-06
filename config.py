@@ -65,7 +65,7 @@ CORE_2 = {
         'client_secret': 'core-api-secret',
         'sap_username' : 'core-api-user',
         'sap_password' : 'core-api-password'},
-    'prod-sap': {
+    'prd-sap': {
         'base_url': "https://sbx-latp-apim.prod.apimanagement.us20.hana.ondemand.com/s4b",
         'auth_url': "https://latp-apim.prod.apimanagement.us20.hana.ondemand.com/oauth2/token",
         'client_id': 'core-api-key',
