@@ -2,8 +2,6 @@ from os import environ, getenv, remove
 from pathlib import Path
 import re
 
-HASH_OFFSET = 123456789
-
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from azure.storage.blob import BlobServiceClient
@@ -18,7 +16,7 @@ load_dotenv('.env', override=True)
 # pylint: disable=missing-class-docstring
 # pylint: disable=non-ascii-name
 
-## Se solicitó un runbook nuevo para cambiar referencias de CORE a CONCILIATIONS. 
+
 SETUP_2 = {
     'dev': {},
     'qas': {
@@ -27,7 +25,7 @@ SETUP_2 = {
             'subscription_id'  : 'sp-core-events-suscription',
             'client_id'        : 'sp-core-events-client',
             'client_secret'    : 'sp-core-events-secret'},
-        'databricks-scope' : 'eh-core-banking'},
+        'databricks-scope' : 'eh-core-banking'},    # ops-conciliations
     'stg': {
         'databricks-scope': 'ops-conciliations',
         'service-principal' : {

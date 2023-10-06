@@ -1,7 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC ## Descripción
-# MAGIC Instalar requerimientos de librerías para los _notebooks_. 
+# MAGIC ... instalando requerimientos de librerías para los _notebooks_ ...
 
 # COMMAND ----------
 

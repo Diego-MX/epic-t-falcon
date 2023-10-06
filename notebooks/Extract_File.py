@@ -18,7 +18,7 @@
 # MAGIC   Por lo general es cuestión de sintaxis, o recomendaciones generales de Python.  
 # MAGIC * La refactorización se indica aparte, pues implica un cambio sustancial en el código,  
 # MAGIC   solicito la junta para implementar los cambios en conjunto.  
-# MAGIC 
+# MAGIC
 # MAGIC ### Modificaciones
 # MAGIC - En bloque `if ... else ...`, no se debe asumir que `else` implica `FileName` es el restante.  
 # MAGIC   Se cambia por otro `elif` y `else` marca error.   
@@ -40,14 +40,14 @@
 # MAGIC     'DAMBS' : (lo correspondiente a DAMBS_SETUP), 
 # MAGIC     'DAMNA' : (lo correpsondiente a DAMNA_SETUP)
 # MAGIC }
-# MAGIC 
+# MAGIC
 # MAGIC LAYER_COLS = {
 # MAGIC     'ATPTX' : (lo correspondiente a ATPTX_width_column_defs), 
 # MAGIC     'DAMBS' : (lo correspondiente a DAMBS_width_column_defs), 
 # MAGIC     'DAMNA' : (lo correspondiente a DAMNA_width_column_defs), 
 # MAGIC }
 # MAGIC ```
-# MAGIC 
+# MAGIC
 # MAGIC Y en la función utilizar la variable `FileName` como llave del diccionario para leer los argumentos correspondientes.  
 # MAGIC La mayoría del código común queda afuera del `if ... else ... end`: 
 # MAGIC ```
@@ -56,9 +56,9 @@
 # MAGIC delta  = ...
 # MAGIC procesados = ...
 # MAGIC dateFormat = ...
-# MAGIC 
+# MAGIC
 # MAGIC # código común 
-# MAGIC 
+# MAGIC
 # MAGIC if   FileName == 'ATPTX': 
 # MAGIC     # código diferenciado 
 # MAGIC     df = (transformaciones de ATPTX)
@@ -68,7 +68,7 @@
 # MAGIC     df = (transformaciones de DAMBS)
 # MAGIC else: 
 # MAGIC     print("Error de variable FILENAME.")
-# MAGIC 
+# MAGIC
 # MAGIC # código común de escritura. 
 # MAGIC ```
 

@@ -69,14 +69,14 @@ tmp_parent = compose_left(
 c4b_key = dbutils.widgets.get('c4b_spei')
 recoif_key = dbutils.widgets.get('recoif')
 w_date = dbutils.widgets.get('date')
-if w_date != 'yyyy-mm-dd': 
-    s_date = w_date
-else:     
+
+if w_date != 'yyyy-mm-dd':
     now_mx = dt.now(tz('America/Mexico_City'))      # pylint: disable=invalid-name
-    yday = now_mx.date() - delta(days=1) 
-    y_date = yday.strftime('%Y-%m-%d')
-    s_date = y_date
-r_date = dt.strptime(s_date, '%Y-%m-%d')
+    r_date = now_mx.date() - delta(days=1) 
+    s_date = r_date.strftime('%Y-%m-%d')
+else:
+    s_date = w_date
+    r_date = dt.strptime(s_date, '%Y-%m-%d')
 
 print(f"""
 SPEI-C4B : {at_banking}
@@ -198,10 +198,10 @@ c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
 two_paths = juxt(identity, tmp_parent)
 
-base_063.save_as_file(*two_paths(f"{dir_063}/compare/{s_date}_063_comparativo.csv"), header=True)
-diffs_063.save_as_file(*two_paths(f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv"), header=True)
-gfb_063.save_as_file(*two_paths(f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv"), header=True)
-c4b_063.save_as_file(*two_paths(f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv"), header=True)
+base_063.save_as_file(*two_paths(f"{dir_063}/compare/{s_date}_063_comparativo.csv"), )
+diffs_063.save_as_file(*two_paths(f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv"))
+gfb_063.save_as_file(*two_paths(f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv"))
+c4b_063.save_as_file(*two_paths(f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv"))
 
 
 # COMMAND ----------

@@ -15,28 +15,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -q -r ../reqs_dbks.txt
-
-# COMMAND ----------
-
-from pyspark.sql import SparkSession
-from pyspark.dbutils import DBUtils
-import subprocess
-import yaml
-
-spark = SparkSession.builder.getOrCreate()
-dbks_secrets = DBUtils(spark).secrets
-
-with open("../user_databricks.yml", 'r') as _f: 
-    u_dbks = yaml.safe_load(_f)
-
-epicpy_load = {
-    'url'   : 'github.com/Bineo2/data-python-tools.git', 
-    'branch': 'dev-diego', 
-    'token' :  dbks_secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])}
-
-url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
-subprocess.check_call(['pip', 'install', url_call])
+# MAGIC %run ./0_install_nb_reqs
 
 # COMMAND ----------
 
@@ -59,7 +38,7 @@ from epic_py.tools import next_whole_period, past_whole_period
 
 from src.tools import write_datalake
 from config import (ConfigEnviron, 
-    t_agent, t_resources,                    
+    t_agent, t_resourcer,                    
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 
 # COMMAND ----------
@@ -70,8 +49,8 @@ app_environ.sparktransfer_credential()
 
 
 resources = RESOURCE_SETUP[ENV]
-abfss_slv = t_resources.get_resource_url('abfss', 'storage', container='silver')
-blob_path = t_resources.get_resource_url('blob', 'storage')
+abfss_slv = t_resourcer.get_resource_url('abfss', 'storage', container='silver')
+blob_path = t_resourcer.get_resource_url('blob', 'storage')
 
 datasets = f"{abfss_slv}/{paths['datasets']}"
 reports  = f"{abfss_slv}/{paths['reports']}"
@@ -82,9 +61,6 @@ clients_loc  = f"{datasets}/damna/delta"
 
 #%% Blob Things
 slv_container = ContainerClient(blob_path, 'silver', app_environ.credential) 
-
-
-
 
 # COMMAND ----------
 
@@ -125,9 +101,8 @@ print(accounts_range)
 def get_name_date(a_str): 
     to_match = re.match(r'(r2422|sispagos)_([\d\-]{10})\.csv')
     get_it = (dt.strptime(to_match.group(1), '%Y-%m-%d') 
-              if yes_match else None)
+              if to_match else None)
     return get_it
-
 
 r2422_dates = filter(None, [get_name_date(f_ish.name) 
         for f_ish in dbutils.fs.ls(f"{reports}/r2422/processed/")])

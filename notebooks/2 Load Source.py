@@ -21,34 +21,13 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -q -r ../reqs_dbks.txt
+# MAGIC %run ./0_install_nb_reqs
 
 # COMMAND ----------
 
-from pyspark.sql import SparkSession
-from pyspark.dbutils import DBUtils
-import subprocess
-import yaml
-
-spark = SparkSession.builder.getOrCreate()
-dbks_secrets = DBUtils(spark).secrets
-
-with open("../user_databricks.yml", 'r') as _f: 
-    u_dbks = yaml.safe_load(_f)
-
-epicpy_load = {
-    'url'   : 'github.com/Bineo2/data-python-tools.git', 
-    'branch': 'dev-diego', 
-    'token' :  dbks_secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])}
-
-url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
-subprocess.check_call(['pip', 'install', url_call])
-
-# COMMAND ----------
-
-from delta.tables import DeltaTable as Δ
-from pyspark.sql import (functions as F, Window as W)
 from pathlib import Path
+from delta.tables import DeltaTable as Δ
+from pyspark.sql import functions as F, Window as W
 
 # COMMAND ----------
 
@@ -294,15 +273,6 @@ readies_Δ[a_key] = ref_Δ
     # f"\tmerging Δ-table at {Δ_path}"
 ref_Δ.upsert_into(Δ_path, ['file_date', *on_cols], 'simple')
 
-ref_Δ.display()
-
-# COMMAND ----------
-
-dbutils.fs.ls('abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/card-management/datasets/')
-
-# COMMAND ----------
-
-# dbutils.fs.ls('abfss://silver@stlakehyliaqas.dfs.core.windows.net/ops/card-management/datasets/')
 ref_Δ.display()
 
 # COMMAND ----------

@@ -1,6 +1,7 @@
 # pylint: disable=missing-module-docstring
 from collections import OrderedDict
-from pyspark.sql import functions as F, SparkSession
+
+from pyspark.sql import functions as F
 
 c4b_specs = {
     'name': 'cloud-banking',
