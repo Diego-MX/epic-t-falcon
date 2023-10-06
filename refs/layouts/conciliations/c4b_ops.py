@@ -33,12 +33,19 @@ c4b_specs = {
         'clave_txn'   : F.col('TRANSACTIONTYPECODE'),
         'moneda'      : F.col('CURRENCY'),
         'monto_txn'   : F.col('AMOUNT'),  # Suma y compara
+<<<<<<< HEAD
         'tipo_txn'    : F.col('TYPENAME'),  # Referencia, asociada a CLAVE_TXN.
         },  # TIPO_PROD se obtiene del JOIN.  
 
     'match': {
         'where': [F.col('txn_valid')],
         'by'   : ['num_cuenta', 'clave_txn', 'moneda', 'tipo_prod'],
+=======
+        'tipo_txn'    : F.col('TYPENAME')},  # Referencia, asociada a CLAVE_TXN.
+    'match': {
+        'where': [F.col('txn_valid')],
+        'by'   : ['num_cuenta', 'clave_txn', 'moneda'],
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
         'agg'  : {
             'c4b_num_txns': F.count('*'),
             'c4b_monto'   : F.round(F.sum('monto_txn'), 2)}}

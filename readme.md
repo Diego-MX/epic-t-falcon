@@ -58,6 +58,10 @@ El esquema general es:
 
 
 
+<<<<<<< HEAD
+=======
+En la continuación del desarrollo de este módulo colaborativo describimos los _notebooks_ y módulos q
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
 
 [runbook]: https://bineo.atlassian.net/wiki/spaces/~6282a2fbd9ddcc006e9c3438/pages/1725595654/Conciliaciones+-+runbook
 

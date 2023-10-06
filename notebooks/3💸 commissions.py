@@ -73,17 +73,18 @@ from pytz import timezone
 
 spark = SparkSession.builder.getOrCreate()
 
-# COMMAND ----------
-
 from importlib import reload
-import config; reload(config)
+import epic_py; reload(epic_py)
+import config ; reload(config)
 
 from epic_py.delta import EpicDF, when_plus
-from epic_py.partners import SAPSession
+from epic_py.core_banking import SAPSession
+
 from src import tools
+
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths, 
-    t_agent, t_resourcer, t_core)
+    t_agent, t_resources, t_core)
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
@@ -107,9 +108,9 @@ atptx_loc = f"{at_datasets}/atpt/delta"
 # MAGIC
 # MAGIC Estatus en comisiones:   
 # MAGIC `'0.0': '0.0'`    
-# MAGIC  `'1'   : 'Creado'`     
-# MAGIC  `'2'   : 'Procesado'`  
-# MAGIC  `'3'   : 'No procesado'`  
+# MAGIC `'1'   : 'Creado'`     
+# MAGIC `'2'   : 'Procesado'`  
+# MAGIC `'3'   : 'No procesado'`  
 
 # COMMAND ----------
 

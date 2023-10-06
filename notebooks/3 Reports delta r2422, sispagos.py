@@ -22,7 +22,6 @@
 from datetime import datetime as dt
 import re
 
-from azure.storage.blob import ContainerClient
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
 from pyspark.sql import functions as F, SparkSession, types as T
 
@@ -35,9 +34,9 @@ from epic_py.delta import EpicDF
 from epic_py.tools import dirfiles_df, next_whole_period, past_whole_period
 
 from src.tools import write_datalake
-from config import (t_agent, t_resourcer, DATALAKE_PATHS as paths,
-    # ENV, SERVER, RESOURCE_SETUP, 
-    ConfigEnviron)
+from config import t_resourcer, DATALAKE_PATHS as paths
+    # ENV, SERVER, RESOURCE_SETUP, t_agent, ConfigEnviron
+    
 
 
 
@@ -58,7 +57,8 @@ accounts_loc = f"{datasets}/dambs/delta"
 clients_loc  = f"{datasets}/damna/delta"
 
 #%% Blob Things
-slv_container = ContainerClient(blob_path, 'silver', app_environ.credential) 
+# slv_container = ContainerClient(blob_path, 'silver', app_environ.credential) 
+slv_container = t_resourcer.get_storage_client(container='silver')
 
 # COMMAND ----------
 
@@ -69,8 +69,8 @@ slv_container = ContainerClient(blob_path, 'silver', app_environ.credential)
 # MAGIC se escriben como `csv` en una carpeta tipo SFTP dentro del _datalake_.   
 # MAGIC
 # MAGIC La tabla Δ tiene funcionalidad para escribirse como `csv`, con la particularidad de que 
-# MAGIC agrega muchos archivos de metadatos.  Para remediar esto, convertimos el _dataframe_ de Spark resumen 
-# MAGIC a formato Pandas, y lo escribimos como blob.  
+# MAGIC agrega muchos archivos de metadatos.  Para remediar esto, convertimos el _dataframe_ de 
+# MAGIC Spark resumen a formato Pandas, y lo escribimos como blob.  
 # MAGIC
 # MAGIC La siguiente configuración y función se encargan de estos pasos.   
 
@@ -97,7 +97,7 @@ print(accounts_range)
 # COMMAND ----------
 
 def get_name_date(a_str): 
-    to_match = re.match(r'(r2422|sispagos)_([\d\-]{10})\.csv')
+    to_match = re.match(r'(r2422|sispagos)_([\d\-]{10})\.csv', a_str)
     get_it = (dt.strptime(to_match.group(1), '%Y-%m-%d') 
               if to_match else None)
     return get_it

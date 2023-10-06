@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # pylint: disable=missing-module-docstring
 from operator import methodcaller as ϱ
 import pandas as pd
@@ -11,6 +12,15 @@ from epic_py.tools import packed
 # pylint: disable=dangerous-default-value
 # pylint: disable=invalid-name
 # pylint: disable=missing-class-docstring
+=======
+from collections import OrderedDict
+from warnings import warn
+
+import pandas as pd
+from pandas import DataFrame as pd_DF
+from pyspark.sql import functions as F, types as T
+from epic_py.delta import EpicDF, when_plus
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
 
 schema_types = {
     'int' : T.IntegerType, 'long' : T.LongType,   'ts'   : T.TimestampType, 
@@ -20,12 +30,21 @@ schema_types = {
 class Sourcer(): 
     def __init__(self, path, **kwargs): 
         self.path = path
+<<<<<<< HEAD
         self.name = kwargs.get('name')
         self.alias = kwargs.get('alias')
         self.match = kwargs.get('match', {})
         self.mutate = kwargs.get('mutate', {})
         self.schema = kwargs.get('schema', {})
         self.options = kwargs.get('options', {})
+=======
+        self.name = kwargs.get('name' )
+        self.alias = kwargs.get('alias')
+        self.options = kwargs.get('options',{})
+        self.mutate = kwargs.get('mutate', {})
+        self.schema = kwargs.get('schema', {})
+        self.match = kwargs.get('match',  {})
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
         
     def start_data(self, spark): 
         a_schema = self._prep_schema()
@@ -38,10 +57,18 @@ class Sourcer():
 
     def setup_data(self, a_df):
         typer = {
+<<<<<<< HEAD
             'str'  : F.trim, 
             'int_2': compose_left(F.trim, ϱ('cast', 'int'))}
         prepare_cols = {kk: typer[vv](F.col(kk))
             for kk, vv in self.schema.items() if vv in typer}
+=======
+            'str'  : lambda cc: F.trim(cc), 
+            'int_2': lambda cc: F.trim(cc).cast('int')}
+        prepare_cols = {kk: typer[vv](F.col(kk))
+            for kk, vv in self.schema.items() if vv in typer}
+
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
         df_1 = (a_df
             .with_column_plus(prepare_cols)
             .with_column_plus(self.mutate))
@@ -49,7 +76,11 @@ class Sourcer():
 
     def join_diffs(self, d_df:EpicDF, a_df:EpicDF, **kwargs): 
         how = kwargs.get('how', 'left')
+<<<<<<< HEAD
         on  = kwargs.get('on', self.match['by'])    # pylint: disable=invalid-name
+=======
+        on  = kwargs.get('on', self.match['by'])
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
         j_df = d_df.join(a_df, how, on)
         return j_df
 
@@ -62,7 +93,11 @@ class Sourcer():
         return T.StructType(fields)
 
     
+<<<<<<< HEAD
 class Conciliator:      # pylint: disable=missing-class-docstring
+=======
+class Conciliator:
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
     def __init__(self, src_1, src_2, check): 
         nm_1 = getattr(src_1, 'name', 1)
         nm_2 = getattr(src_2, 'name', 2)
@@ -72,14 +107,22 @@ class Conciliator:      # pylint: disable=missing-class-docstring
         self.matches = {nm_1 : m_1, nm_2: m_2}
         self.data = {}
         self.check = check
+<<<<<<< HEAD
         self.by = m_1['by']     # pylint: disable=invalid-name
         self.base_data = None
+=======
+        self.by = m_1['by']
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
         assert m_1['by'] == m_2['by'], "BY columns are not equal."
         
         
     def base_match(self, *dfs): 
         names = self._names
+<<<<<<< HEAD
         for nm, df in zip(names, dfs):      # pylint: disable=invalid-name 
+=======
+        for nm, df in zip(names, dfs): 
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
             self.data[nm] = df
 
         m_0, m_1 = self.matches[names[0]], self.matches[names[1]]
@@ -97,6 +140,7 @@ class Conciliator:      # pylint: disable=missing-class-docstring
         self.base_data = the_join
         return the_join
     
+<<<<<<< HEAD
     def filter_checks(self, base_df: EpicDF=None, f_keys=[], join_alias=None): 
         base_df = base_df or self.base_data
         key_filter = self._keys_to_column(f_keys)
@@ -107,6 +151,20 @@ class Conciliator:      # pylint: disable=missing-class-docstring
             f_df = f_df.join(j_df, on=self.by, how='left')
         return f_df 
 
+=======
+
+    def filter_checks(self, base_df:EpicDF=None, f_keys=[], j_alias=None): 
+        base_df = base_df or self.base_data
+        key_filter = self._keys_to_column(f_keys)
+        j_df = self.data.get(j_alias)
+
+        f_df = base_df.filter(key_filter)
+        if j_alias: 
+            f_df = f_df.join(j_df, 'left', self.by)
+        return f_df 
+
+
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
     def _keys_to_column(self, str_keys): 
         if isinstance(str_keys, list): 
             f_col = F.col('check_key').isin(str_keys)
@@ -128,7 +186,11 @@ file_formats = {
 date_formats = {
     'spei-ledger' : '%d%m%Y'}
 
+<<<<<<< HEAD
 def process_files(file_df: pd_DF, a_src) -> pd_DF: 
+=======
+def process_files(file_df: pd_DF, a_src, w_match=None) -> pd_DF: 
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
     date_fmtr = lambda df: pd.to_datetime(df['date'], 
                 format=date_formats.get(a_src, '%Y%m%d'))
     file_keys = (file_df['name'].str.extract(file_formats[a_src])
@@ -185,7 +247,11 @@ def get_match_path(dir_df, file_keys):
     the_matchers = ['True'] + matchers_keys[file_keys['key']]
     
     fails = {0: 0, 2: 0}
+<<<<<<< HEAD
     for ii, other_match in enumerate(the_matchers):     # pylint: disable=invalid-name 
+=======
+    for ii, other_match in enumerate(the_matchers): 
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
         matches_1 = matches_0 & dir_df.eval(other_match)
         has_path  = condition_path(matches_1)
         if has_path[0] == 1: 
@@ -193,6 +259,7 @@ def get_match_path(dir_df, file_keys):
         else: 
             fails[has_path[0]] += 1
             print(f"Trying matches {ii+1} of {len(the_matchers)}:  failing status {has_path[0]}.")
+<<<<<<< HEAD
             continue     
     print(f"Can't find file for date {file_keys['date']}.")
     return None
@@ -200,11 +267,25 @@ def get_match_path(dir_df, file_keys):
 
 def get_source_path(dir_df, file_keys): 
     λ_equal = packed("({} == '{}')".format)         # pylint: disable=consider-using-f-string
+=======
+            continue
+    else: 
+        print(f"Can't find file for date {file_keys['date']}.")
+        return None
+
+
+def get_source_path(dir_df, file_keys): 
+    λ_equal = lambda k_v: "({} == '{}')".format(*k_v)
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
     q_str = ' & '.join(map(λ_equal, file_keys.items()))
     
     path_df = dir_df.query(q_str)
     if path_df.shape[0] != 1: 
         print(f"File keys match is not unique... (len: {path_df.shape[0]})")
         return None
+<<<<<<< HEAD
+=======
+    
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
     return path_df['path'].iloc[0]
     

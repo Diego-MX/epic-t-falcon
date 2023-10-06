@@ -25,6 +25,7 @@ fpsl_specs = {
         'txn_valid'   : F.col('C11PRDCTR').isNotNull()
                       & F.col('C11PRDCTR').startswith('EPC')
                       &~F.col('C35TRXTYP').startswith('S'),
+<<<<<<< HEAD
         'num_cuenta'  : F.substring(F.col('C55CONTID'), 1, 11),
         'clave_txn'   : F.col('C35TRXTYP').cast('int'),
         'moneda'      : F.col('LOC_CURR'),
@@ -34,6 +35,16 @@ fpsl_specs = {
     'match': {
         'where': [F.col('txn_valid')],
         'by'   : ['num_cuenta', 'clave_txn', 'moneda', 'tipo_prod'],
+=======
+        'num_cuenta'  : F.substring(F.col('C55CONTID'), 1, 11),  # JOIN
+        'clave_txn'   : F.col('C35TRXTYP').cast('int'),
+        'moneda'      : F.col('LOC_CURR'),
+        'monto_txn'   : F.col('K5SAMLOC'),     # Suma y compara.
+        'cuenta_fpsl' : F.col('IGL_ACCOUNT')}, # Referencia extra, asociada a NUM_CUENTA.
+    'match': {
+        'where': [F.col('txn_valid')],
+        'by'   : ['num_cuenta', 'clave_txn', 'moneda'],
+>>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
         'agg'  : {
             'fpsl_num_txns': F.count('*'),
             'fpsl_monto'   : F.round(F.sum('monto_txn'), 2)}}
