@@ -8,7 +8,7 @@
 -- MAGIC from datetime import datetime
 -- MAGIC import math
 -- MAGIC from dateutil.relativedelta import relativedelta  # requires python-dateutil
--- MAGIC 
+-- MAGIC
 -- MAGIC file_name = datetime(year=datetime.now().year, month=((math.floor(((datetime.now().month - 1) / 3) + 1) - 1) * 3) + 1, day=1).strftime("%Y%m%d")
 -- MAGIC outputPath = "/dbfs/mnt/lakehylia-silver/ops/regulatory/card-management/transformation-layer/SISPAGOS_"+file_name+".csv"
 -- MAGIC start_of_quarter = datetime(year=datetime.now().year, month=((math.floor(((datetime.now().month - 1) / 3) + 1) - 1) * 3) + 1, day=1)
@@ -23,7 +23,7 @@
 -- MAGIC import datetime
 -- MAGIC import pytz
 -- MAGIC from pyspark.sql.functions import *
--- MAGIC 
+-- MAGIC
 -- MAGIC currentdate = datetime.datetime.now(pytz.timezone('America/Mexico_City')).strftime("%Y%m%d")
 -- MAGIC deltaPath = "/mnt/lakehylia-silver/ops/regulatory/card-management/transformation-layer/sispagos"
 -- MAGIC spark.conf.set('deltaPath',str(deltaPath))
@@ -61,7 +61,7 @@ LOCATION '$pathSispagos';
 -- COMMAND ----------
 
 -- MAGIC %scala
--- MAGIC 
+-- MAGIC
 -- MAGIC val df = spark.createDataFrame(Seq(
 -- MAGIC   (2022, 12, "1.1", "MXN", 1010, 1816, 0, 0),
 -- MAGIC   (2022, 12, "2.1", "MXN", 1723, 0, 0, 0),

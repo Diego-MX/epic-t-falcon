@@ -6,7 +6,7 @@
 # MAGIC `ii)` **Sispagos**- (trimestral) contiene el número de cuentas y el saldo promedio de acuerdo a ciertas clasificaciones.   
 # MAGIC &ensp;&ensp; En un inicio se tomaron las clasificaciones fijas, o sea sólo una;  
 # MAGIC &ensp;&ensp; pero a continuación se requirió la expansión de otras clasificaciones.  
-# MAGIC 
+# MAGIC
 # MAGIC Este _notebook_ incluye las siguientes partes: 
 # MAGIC - Preparación: sirve para definir paquetes y variables.  
 # MAGIC - Ejecución de los reportes en el orden mencionado.  Para cada uno de ellos:  
@@ -15,39 +15,41 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -r ../reqs_dbks.txt
+# MAGIC %run ./0_install_nb_reqs
+
+# COMMAND ----------
+
+from azure.storage.blob import ContainerClient
+from datetime import datetime as dt
+from pyspark.dbutils import DBUtils
+from pyspark.sql import functions as F, types as T, SparkSession
+import re
+
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
 from importlib import reload
-import config
-reload(config)
+import epic_py; reload(epic_py)
+
+from epic_py.delta import EpicDF
+from epic_py.tools import next_whole_period, past_whole_period
+
+from src.tools import write_datalake
+from config import (ConfigEnviron, 
+    t_agent, t_resourcer,                    
+    ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 
 # COMMAND ----------
-
-from datetime import datetime as dt, date, timedelta as delta 
-from dateutil.relativedelta import relativedelta as r_delta
-import io
-from math import ceil
-import pandas as pd
-from pyspark.sql import functions as F, types as T
-import re
-from typing import Union
-
-from azure.identity import ClientSecretCredential
-from azure.storage.blob import ContainerClient
-
-from src.utilities import write_datalake
-from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 
 app_environ = ConfigEnviron(ENV, SERVER, spark)
 app_environ.set_credential()
 app_environ.sparktransfer_credential()
 
 resources = RESOURCE_SETUP[ENV]
-abfss_slv = paths['abfss'].format('silver', resources['storage'])
-blob_path = paths['blob'].format(resources['storage'])
+abfss_slv = t_resourcer.get_resource_url('abfss', 'storage', container='silver')
+blob_path = t_resourcer.get_resource_url('blob', 'storage')
 
 datasets = f"{abfss_slv}/{paths['datasets']}"
 reports  = f"{abfss_slv}/{paths['reports']}"
@@ -59,62 +61,18 @@ clients_loc  = f"{datasets}/damna/delta"
 #%% Blob Things
 slv_container = ContainerClient(blob_path, 'silver', app_environ.credential) 
 
-
-def get_name_date(a_str): 
-    yes_match = re.match(r'(r2422|sispagos)_([\d\-]{10})\.csv')
-    get_it = (dt.strptime(yes_match.group(1), '%Y-%m-%d') 
-              if yes_match else None)
-    return get_it
-
-def floor_date(a_dt: date, period='month'):
-    if period == 'month': 
-        a_floor = a_dt.replace(day=1)
-    if period == 'quarter': 
-        f_month = 3*ceil(a_dt.month/3)-2
-        a_floor = a_dt.replace(day=1, month=f_month)
-    return a_floor
-
-def next_whole_period(a_dt: date, period='month'): 
-    # If A_DATE is starting the calendar period, it returns that date, 
-    #     if not, returns the beginning of the next period.  
-    period_months = {'month': 1, 'quarter': 3}
-    the_date = (floor_date(a_dt - delta(1), period) 
-        + r_delta(months=period_months[period]))
-    return the_date
-
-def past_whole_period(a_dt: date, period='month', to_return='date'): 
-    # If A_DATE is ending the calendar period, it returns that date, 
-    #    if not, returns the end of the previous period. 
-    the_date = floor_date(a_dt + delta(1), period) - delta(1)
-    the_return = (the_date if to_return == 'date' 
-            else floor_date(the_date, 'period'))
-    return the_return
-
-def file_exists(a_path): 
-    if a_path[:5] == "/dbfs":
-    # In  Databricks
-        return os.path.exists(path)
-    # Out Databricks
-    try:
-        dbutils.fs.ls(path)
-        return True
-    except: 
-        return False
-
-
-
 # COMMAND ----------
 
 # MAGIC %md 
 # MAGIC ## Escritura de archivo
-# MAGIC 
+# MAGIC
 # MAGIC Las tablas reporte se calculan directamente en formato Δ, y de acuerdo al flujo funcional 
 # MAGIC se escriben como `csv` en una carpeta tipo SFTP dentro del _datalake_.   
-# MAGIC 
+# MAGIC
 # MAGIC La tabla Δ tiene funcionalidad para escribirse como `csv`, con la particularidad de que 
 # MAGIC agrega muchos archivos de metadatos.  Para remediar esto, convertimos el _dataframe_ de Spark resumen 
 # MAGIC a formato Pandas, y lo escribimos como blob.  
-# MAGIC 
+# MAGIC
 # MAGIC La siguiente configuración y función se encargan de estos pasos.   
 
 # COMMAND ----------
@@ -124,12 +82,12 @@ cms_tables = {
     'txns'    : 'farore_transactions.slv_ops_cms_atptx_stm', 
     'accounts': 'nayru_accounts.slv_ops_cms_dambs_stm', }
 
-accounts_range = (spark.read.format('delta')
-    .load(accounts_loc)
+accounts_range = (EpicDF(spark, accounts_loc)
     .select(F.max('file_date').alias('max_date'), 
             F.min('file_date').alias('min_date'))
     .collect()[0])
 
+print(accounts_loc)
 print(accounts_range)  
 
 # COMMAND ----------
@@ -139,8 +97,14 @@ print(accounts_range)
 
 # COMMAND ----------
 
+def get_name_date(a_str): 
+    to_match = re.match(r'(r2422|sispagos)_([\d\-]{10})\.csv')
+    get_it = (dt.strptime(to_match.group(1), '%Y-%m-%d') 
+              if to_match else None)
+    return get_it
+
 r2422_dates = filter(None, [get_name_date(f_ish.name) 
-    for f_ish in dbutils.fs.ls(f"{reports}/r2422/processed/")])
+        for f_ish in dbutils.fs.ls(f"{reports}/r2422/processed/")])
 
 pre_start = max(r2422_dates) if any(r2422_dates) else accounts_range['min_date']
 
@@ -152,13 +116,11 @@ print(f"From ({r2422_start}) to ({r2422_end})")
 
 # COMMAND ----------
 
-clients_genders = (spark.read.format('delta')
-    .load(clients_loc)
+clients_genders = (EpicDF(spark, clients_loc)
     .select(F.col('amna_acct').alias('ambs_cust_nbr'), F.col('amna_gender_code_1'))
     .distinct())
 
-accounts = (spark.read.format('delta')
-    .load(accounts_loc)
+accounts = (EpicDF(spark, accounts_loc)
     .filter(F.col('file_date').between(r2422_start, r2422_end))
     .withColumn('MONTH_REPORT', F.trunc(F.col('file_date'), 'month'))
     .groupby(*['MONTH_REPORT', 'ambs_cust_nbr', 'ambs_acct'])
@@ -171,13 +133,15 @@ select_cols = ['MONTH_REPORT'] + [f'CONTRACT_ACTIVE_DEBIT_CARD_{gender}'
       
 r_2422 = (accounts
     .groupby('MONTH_REPORT')
-        .pivot('amna_gender_code_1').sum('cuenta_mes')
-    .withColumnRenamed('0', 'CONTRACT_ACTIVE_DEBIT_CARD_NOT_SPECIFIED')
-    .withColumnRenamed('1', 'CONTRACT_ACTIVE_DEBIT_CARD_MALE')
-    .withColumnRenamed('2', 'CONTRACT_ACTIVE_DEBIT_CARD_FEMALE')
-    .select(*select_cols))
+        .pivot('amna_gender_code_1')
+        .agg(F.sum('cuenta_mes'))
+    # .withColumnRenamed('0', 'CONTRACT_ACTIVE_DEBIT_CARD_NOT_SPECIFIED')
+    # .withColumnRenamed('1', 'CONTRACT_ACTIVE_DEBIT_CARD_MALE')
+    # .withColumnRenamed('2', 'CONTRACT_ACTIVE_DEBIT_CARD_FEMALE')
+    # .select(*select_cols)
+    )
 
-display(r_2422)
+r_2422.display()
 
 # COMMAND ----------
 
@@ -199,28 +163,30 @@ print(f"From ({sis_start}) to ({sis_end})")
 
 # COMMAND ----------
 
-
 select_cols = ['Trimestre', 'Seccion', 'Moneda', 
     'Tipo_Cuenta', 'Tipo_Persona', 
     'Numero_de_Cuentas', 'Saldo_Promedio']
 
-# sispagos = (spark.read.format('delta').load(cms_tables['accounts'])
-sispagos = (spark.read
-    .format('delta').load(accounts_loc)
+group_cols = {
+    'agg' : {
+        'numero_de_cuentas': F.sum('ambs_nbr_unblked_cards'), 
+        'suma_balances'    : F.sum('ambs_curr_bal')}, 
+    'mutate': {
+        'Saldo_Promedio': F.round(F.col('suma_balances')/F.col('numero_de_cuentas'), 2), 
+        'Seccion'       : F.lit('2.1'), 
+        'Moneda'        : F.lit('MXN'), 
+        'Tipo_Cuenta'   : F.lit('1723'), 
+        'Tipo_Persona'  : F.lit('')}}
+
+sispagos = (EpicDF(spark, accounts_loc)
     .filter(F.col('file_date').between(sis_start, sis_end))
     .withColumn('Trimestre', F.trunc(F.col('file_date'), 'quarter'))
     .groupBy(F.col('Trimestre'))
-    .agg(
-        F.sum('ambs_nbr_unblked_cards').alias('numero_de_cuentas'), 
-        F.sum('ambs_curr_bal').alias('suma_balances'))
-    .withColumn('Saldo_Promedio', F.round(F.col('suma_balances')/F.col('Numero_de_Cuentas'), 2))
-    .withColumn('Seccion',      F.lit('2.1'))
-    .withColumn('Moneda',       F.lit('MXN'))
-    .withColumn('Tipo_Cuenta',  F.lit('1723'))
-    .withColumn('Tipo_Persona', F.lit(''))
+    .agg_plus(group_cols['agg'])
+    .with_column_plus(group_cols['mutate'])
     .select(*select_cols))
 
-display(sispagos)
+sispagos.display()
 
 # COMMAND ----------
 
@@ -229,15 +195,18 @@ display(sispagos)
 
 # COMMAND ----------
 
+r_2422.display()
+
+# COMMAND ----------
 
 pd_r2422 = r_2422.toPandas()
 
 for _, row in pd_r2422.iterrows():
     date_str = row['MONTH_REPORT'].strftime('%Y-%m-%d')
     row_path = f"{reports}/r2422/r2422_{date_str}.csv" 
-    row_trck = f"{reports}/r2422/processed/r2422_{date_str}.csv" 
+    print(f"escribiendo: {row_path}")
     write_datalake(row, row_path, slv_container, overwrite=True)
-    write_datalake(row, row_trck, slv_container, overwrite=True)
+    
 
 # COMMAND ----------
 
@@ -246,6 +215,11 @@ pd_sispagos = sispagos.toPandas()
 for _, row in pd_sispagos.iterrows():
     date_str = row['Trimestre'].strftime('%Y-%m-%d')
     row_path = f"{reports}/sispagos/sispagos_{date_str}.csv" 
-    row_trck = f"{reports}/sispagos/processed/sispagos_{date_str}.csv" 
+    print(f"escribiendo: {row_path}")
     write_datalake(row, row_path, slv_container, overwrite=True)
-    write_datalake(row, row_trck, slv_container, overwrite=True)
+    
+
+# COMMAND ----------
+
+[x.name for x in dbutils.fs.ls(reports + '/r2422/processed')]
+

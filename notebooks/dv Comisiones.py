@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md 
 # MAGIC # Introducción
-# MAGIC 
+# MAGIC
 # MAGIC En este reporte veremos el proceso de la aplicación de comisiones por retiros de cajeros.  
 # MAGIC Como descripción, las comisiones se aplican sólo a ciertos retiros de cajeros:  aquellos que exedieron el número permitido mensual en cajeros propios de la red (_inhouse_), o bien que se realizaron en cajeros externos a la red.  
 # MAGIC La fuente de estos retiros a los que les aplicamos una comisión son los archivos ATPT que nos proporciona Fiserv, el sistema de manejo de tarjetas.  
@@ -11,26 +11,50 @@
 # MAGIC 2. Identificar los retiros que son susceptibles de una comisión.  
 # MAGIC 3. Aplicar la comisión de esos retiros _comisionables_.  
 # MAGIC 4. Rectificar que la comisión de los retiros se aplicó exitosamente.  
-# MAGIC 
+# MAGIC
 # MAGIC En la última reunión del equipo se discutieron resultados sobre la aplicación de comisiones en tiempos de pruebas.   
 # MAGIC El enfoque de aplicación de pruebas no era del todo compatible con el enfoque de desarrollo en camino a la puesta en producción.  
 # MAGIC Mientras que las pruebas se realizan de manera local, con tomas de pantalla y archivos compartidos por correo; los ambientes de desarrollo no admiten archivos personales, y se ejecutan en los servidores de la nube.  
-# MAGIC 
+# MAGIC
 # MAGIC A continuación veremos la aplicación de comisiones a los retiros de pruebas, a su vez que describimos el proceso general de comisiones en el ambiente de nube.  
 
 # COMMAND ----------
 
 # MAGIC %md 
 # MAGIC # 0. Preparación de archivos y lectura. 
-# MAGIC 
+# MAGIC
 # MAGIC Para las pruebas utilizamos el archivo `ZATPTX01_EPIC_UAX_11012023.txt`.   
 # MAGIC Aunque parecido, es de resaltar que el formato de nombre es distinto a los que recibimos regularmente, ej. `UAT_TRXS_ZATPTX01_2023-01-31.ZIP`, o bien `ZATPTX01_2023-01-31` al descomprimirlo. 
-# MAGIC 
+# MAGIC
 # MAGIC Preparamos carpetas donde se leen los directorios y mostramos la tabla correspondiente al archivo de pruebas. 
+# MAGIC
+# MAGIC
 
 # COMMAND ----------
 
+from collections import OrderedDict
+import pandas as pd
+from pyspark.sql import functions as F, Window as W, types as T
+
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
+# COMMAND ----------
+
+from epic_py.delta import EpicDF
+
 from src import sftp_sources as sftp_src
+from src.core_banking import SAPSession
+from config import (ConfigEnviron, 
+    ENV, SERVER, RESOURCE_SETUP,  
+    DATALAKE_PATHS as paths)
+
+
+app_environ = ConfigEnviron(ENV, SERVER, spark)
+core_starter = app_environ.prepare_coresession('qas-sap')
+core_session = SAPSession(core_starter)
 
 # COMMAND ----------
 
@@ -39,9 +63,9 @@ spk_test = 'dbfs:/FileStore/transformation-layer/samples/ZATPTX01_EPIC_UAX_11012
 
 atpt_srcr = sftp_src.prepare_sourcer('atpt', local_layouts)
 pre_test  = sftp_src.read_delta_basic(spark, spk_test)
-ref_test  = sftp_src.delta_with_sourcer(pre_Δ, atpt_srcr)
+ref_test  = sftp_src.delta_with_sourcer(pre_test, atpt_srcr)
 
-display(ref_test)
+ref_test.display()
 
 
 # COMMAND ----------
@@ -51,20 +75,16 @@ display(ref_test)
 
 # COMMAND ----------
 
-from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP,  
-    DATALAKE_PATHS as paths)
-
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
 app_environ.sparktransfer_credential()
 
-slv_path       = paths['abfss'].format('silver', resources['storage'])
-at_datasets    = f"{slv_path}/{paths['datasets']}"  
-atptx_loc      = f"{at_datasets}/atpt/delta"
+slv_path    = paths['abfss'].format('silver', resources['storage'])
+at_datasets = f"{slv_path}/{paths['datasets']}"  
+atptx_loc   = f"{at_datasets}/atpt/delta"
 
-ref_atpt = spark.read.load(atptx_loc)
-display(ref_atpt)
+ref_atpt = EpicDF(spark, atptx_loc)
+ref_atpt.display()
 
 
 # COMMAND ----------
@@ -90,14 +110,15 @@ Diferentes ATPT_MT_INTERCHG_REF: \t{ref_atpt.select('atpt_mt_interchg_ref').dist
 
 # COMMAND ----------
 
-from pyspark.sql import functions as F, Window as W, types as T
-
 w_txn_ref = (W.partitionBy('atpt_mt_ref_nbr', 'atpt_mt_interchg_ref')
     .orderBy(F.col('atpt_mt_eff_date').desc()))
 
 prepare_cmsns = (ref_atpt
     .withColumn('b_rk_txns', F.row_number().over(w_txn_ref)))
-max_ranks = prepare_cmsns.agg({'b_rk_txns': 'max'}).collect()[0][0]
+
+max_ranks = (prepare_cmsns
+    .agg({'b_rk_txns': 'max'})
+    .collect()[0][0])
 
 unique_cmsns = (prepare_cmsns
     .filter(F.col('b_rk_txns') == 1)
@@ -107,7 +128,7 @@ print(f"""
 Max txns por identificadores:\t{max_ranks} (>> 1!!)
 Número de 'comisiones':\t\t{unique_cmsns.count()}""")
 
-display(unique_cmsns)
+unique_cmsns.display()
 
 # COMMAND ----------
 
@@ -121,9 +142,9 @@ display(unique_cmsns)
 
 # MAGIC %md
 # MAGIC #2. Retiros comisionables 
-# MAGIC 
+# MAGIC
 # MAGIC Se mencionaron las características para cobrar comisiones a un retiro:  que supere el límite de retiros mensual para cajeros _inhouse_ de la red propia, o que se efectue en cajeros externos.    
-# MAGIC 
+# MAGIC
 # MAGIC Entonces calculamos las siguientes variables:  
 # MAGIC - `w_month` el mes de la transacción de acuerdo a `atpt_mt_eff_date`
 # MAGIC - `w_acq_code` la clave de banco adquirente de acuerdo a `atpt_mt_interchg_ref`  
@@ -131,17 +152,18 @@ display(unique_cmsns)
 # MAGIC - `w_rk_acct` el número de retiro en el mes agrupado por cuenta  
 # MAGIC - `w_rk_inhouse`  el número de retiro en cajeros de la red propio (también por cuenta)  
 # MAGIC - `w_is_commissionable` tecnicamente `w_rk_inhouse > 3` o `NOT(w_is_inhouse)`. 
+# MAGIC
+# MAGIC
+# MAGIC
 
 # COMMAND ----------
-
-from collections import OrderedDict
-from src import tools
 
 purchase_to_savings = (lambda a_col: 
     F.concat_ws('-', F.substring(a_col, 1, 11), F.substring(a_col, 12, 3), F.lit('MX')))
    
 w_month_acct = (W.partitionBy('atpt_acct', 'b_wdraw_month')
     .orderBy(F.col('atpt_mt_eff_date').desc()))
+
 w_inhouse    = (W.partitionBy('atpt_acct', 'b_wdraw_month', 'b_wdraw_is_inhouse')
     .orderBy(F.col('atpt_mt_eff_date').desc()))
 
@@ -152,14 +174,17 @@ wdraw_withcols = OrderedDict({
     'b_wdraw_is_inhouse' : F.col('b_wdraw_acq_code') == 11072,
     'b_wdraw_rk_acct'    : F.row_number().over(w_month_acct), 
     'b_wdraw_rk_inhouse' : F.when(F.col('b_wdraw_is_inhouse'), 
-        F.row_number().over(w_inhouse)).otherwise(-1), 
+            F.row_number().over(w_inhouse)).otherwise(-1), 
     'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') | (F.col('b_wdraw_rk_inhouse') > 3)
-    })
+})
 
-final_cmsns = (tools.with_columns(unique_cmsns, wdraw_withcols)
+
+final_cmsns = (unique_cmsns
+    .with_column_plus(wdraw_withcols)
     .filter(F.col('b_wdraw_is_commissionable')))
 
-test_cmsns = (tools.with_columns(ref_test, wdraw_withcols)
+test_cmsns = (ref_test
+    .with_column_plus(wdraw_withcols)
     .filter(F.col('b_wdraw_is_commissionable')))
 
 print(f"""
@@ -167,7 +192,7 @@ Admiten comisión: {final_cmsns.count()}
 En test: {test_cmsns.count()}
 """)
 
-display(final_cmsns)
+final_cmsns.display()
 
 # COMMAND ----------
 
@@ -177,32 +202,10 @@ display(final_cmsns)
 
 # COMMAND ----------
 
-from importlib import reload
-from src import core_banking; reload(core_banking)
-
-# COMMAND ----------
-
-from src import tools, utilities as src_utils
-from src.core_banking import SAPSession
-from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP,  
-    DATALAKE_PATHS as paths)
-
-
-app_environ = ConfigEnviron(ENV, SERVER, spark)
-core_starter = app_environ.prepare_coresession('qas-sap')
-core_session = SAPSession(core_starter)
-
-# COMMAND ----------
-
 run_it = False
 if run_it: 
     responses = core_session.process_commissions_atpt(spark, 
         test_cmsns, 'atm', update=False)
-
-# COMMAND ----------
-
-responses[0].json()
 
 # COMMAND ----------
 

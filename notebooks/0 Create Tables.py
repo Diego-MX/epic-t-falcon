@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Descripción
-# MAGIC 
+# MAGIC
 # MAGIC Se crean tablas `bronze.{extract}` para `{extract}` uno de `dambs`, `damna`, `atptx`.  
 # MAGIC La ubicación correspondiente es: `/mnt/lakehylia-bronze/ops/regulatory/card-management/{extract}`.
 
@@ -10,6 +10,10 @@
 from importlib import reload
 import config
 reload(config)
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
 
 # COMMAND ----------
 

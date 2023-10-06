@@ -3,7 +3,7 @@
 -- MAGIC import datetime
 -- MAGIC import pytz
 -- MAGIC from pyspark.sql.functions import *
--- MAGIC 
+-- MAGIC
 -- MAGIC currentdate = datetime.datetime.now(pytz.timezone('America/Mexico_City')).strftime("%Y%m")
 -- MAGIC outputPath = "/dbfs/mnt/lakehylia-silver/ops/regulatory/card-management/transformation-layer/FT_R2422_"+currentdate+"01.csv"
 -- MAGIC outputPath

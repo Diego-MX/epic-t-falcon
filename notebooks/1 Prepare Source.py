@@ -5,15 +5,15 @@
 # MAGIC * `ATPTX` transacciones
 # MAGIC * `DAMBS` cuentas
 # MAGIC * `DAMNA` clientes
-# MAGIC 
+# MAGIC
 # MAGIC Cada capa corresponde a un tipo de archivo que se deposita por el CMS Fiserv, en una misma carpeta tipo SFTP.  
 # MAGIC El flujo de las capas es el siguiente:  
-# MAGIC 
+# MAGIC
 # MAGIC 0. La versión inicial se corre manualmente, y lee todos los archivos de la carpeta del _datalake_. 
 # MAGIC Para cada archivo, se realiza lo siguiente.  
 # MAGIC 1. Identificar qué tipo de archivo es.  
 # MAGIC 2. Descargar y descomprimir a archivos temporales locales.  
-# MAGIC    Paso necesario -aunque **desafortunado**-, porque Spark no sabe procesar ZIPs directos del _datalake_. 
+# MAGIC    Paso necesario porque Spark no sabe procesar ZIPs directos del _datalake_. 
 # MAGIC 3. Parsear de acuerdo a archivo de configuración. 
 # MAGIC 4. Anexar a la tabla Δ correspondiente. 
 
@@ -28,24 +28,47 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -r ../reqs_dbks.txt
+# MAGIC %pip install -q -r ../reqs_dbks.txt
 
 # COMMAND ----------
 
-from azure.identity import ClientSecretCredential
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+import subprocess
+import yaml
+
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
+
+epicpy_load = {
+    'url'   : 'github.com/Bineo2/data-python-tools.git', 
+    'branch': 'dev-diego'}
+
+with open("../user_databricks.yml", 'r') as _f: 
+    u_dbks = yaml.safe_load(_f)
+
+epicpy_load['token'] = dbutils.secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])
+url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
+subprocess.check_call(['pip', 'install', url_call])
+
+# COMMAND ----------
+
 from azure.storage.blob import ContainerClient
-from collections import Counter
-from datetime import datetime as dt, date, timedelta as delta
 import numpy as np
-from os import listdir
 import pandas as pd
 from pathlib import Path
 import re
-from zipfile import ZipFile, BadZipFile
+from zipfile import ZipFile
 
 # COMMAND ----------
 
-from src import utilities as utils 
+from importlib import reload
+import epic_py; reload(epic_py)
+import config;  reload(config)
+
+from epic_py.tools import dirfiles_df
+
+# cambiar a epic-Py mode. 🙏
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
 
@@ -76,7 +99,8 @@ to_unzip    = "/dbfs/FileStore/transformation-layer/tmp_unzipped"
 
 blob_container = ContainerClient(blob_path, 'bronze', app_env.credential) 
 
-read_df = utils.dirfiles_df(abfss_read, spark)
+print(abfss_read)
+read_df = dirfiles_df(abfss_read, spark)
 read_df
 
 # COMMAND ----------
@@ -108,6 +132,7 @@ blobs_df = (pd.DataFrame(data={
     .assign(rel_path = lambda df: 
         df['abs_path'].str.replace(f"{paths['prepared']}/", '')))
 
+print(f"Prepared: {paths['prepared']}")
 blobs_df
 
 # COMMAND ----------
@@ -136,7 +161,8 @@ raw_files = (pd.concat([read_df, labels], axis=1)   # Ubicado en BRZ por error d
         in_blobs = lambda df: df['brz_name'].isin(blobs_df['rel_path'])))
 
 watch_tags = np.any(raw_files['tag_date'].isnull())
-raw_files.query("tag_1 == 'TRXS'").sort_values('tag_date', ascending=False)
+print()
+raw_files.query("tag_1 == 'CUENTAS'").sort_values('tag_date', ascending=False)
 
 # COMMAND ----------
 
@@ -198,14 +224,13 @@ for ii, f_row in raw_files.iterrows():
 debugging = False
 
 if debugging:
-    from pathlib import Path
     from chardet import detect
     a_path = Path("/dbfs/FileStore/transformation-layer/tmp_unzipped/DAMNA001_2022-12-18" )
     
     # We must read as binary (bytes) because we don't yet know encoding
     blob = a_path.read_bytes()
     a_detection = detect(blob)
-    an_enc = a_detection["encoding"]
+    an_enc  = a_detection["encoding"]
     a_confd = a_detection["confidence"]
     print(f"""{an_enc} encoding at {a_confd}""")
 
