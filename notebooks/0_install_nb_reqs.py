@@ -35,7 +35,8 @@ url_call = "git+https://{token}@{url}@{ref}".format(**epicpy_load)
 subprocess.check_call(['pip', 'install', url_call])
 
 # COMMAND ----------
+
 import epic_py
 print(f"""EpicPy
 Referencia\t: {epicpy_ref}
-Version\t: {epic_py.__version__}""")
+Version\t\t: {epic_py.__version__}""")

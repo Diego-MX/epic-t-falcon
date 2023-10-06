@@ -106,77 +106,17 @@ else:
 
 # COMMAND ----------
 
-# MAGIC %md 
-# MAGIC #### a. Subldedger (FPSL)
-
-# COMMAND ----------
-
-data_src   = 'subledger'    # pylint: disable=invalid-name 
-
-files_0 = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
-files_1 = process_files(files_0, data_src)
-files_args = (files_1, dict(date=r_date, key=fpsl_key))
-(ldgr_files, ldgr_path, ldgr_status) = files_matcher(*files_args)
-ldgr_files.query('matcher > 1')
-
-# COMMAND ----------
-
-ldgr_src = Sourcer(ldgr_path, **c_layouts.fpsl_specs)
-ldgr_prep = ldgr_src.start_data(spark)
-ldgr_data = ldgr_src.setup_data(ldgr_prep)
-ldgr_data.display()
-
-# COMMAND ----------
-
 # MAGIC %md
-# MAGIC #### b. Cloud Banking (C4B)
+# MAGIC #### a. Cloud Banking (C4B)
 
 # COMMAND ----------
 
-data_src  = 'cloud-banking'         # pylint: disable=invalid-name
-files_0 = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
-files_1 = process_files(files_0, data_src)
+src_0  = 'cloud-banking'         # pylint: disable=invalid-name
+files_0 = dirfiles_df(f"{at_conciliations}/{src_0}", spark)
+files_1 = process_files(files_0, src_0)
 c4b_args = (files_1, dict(date=r_date, key=c4b_key))
 (c4b_files, c4b_path, c4b_status) = files_matcher(*c4b_args)
 c4b_files.query('matcher > 1')     # pylint: disable=expression-not-assigned  
-
-# COMMAND ----------
-
-# MAGIC %md 
-# MAGIC ### ii. Subldedger (FPSL)
-
-# COMMAND ----------
-
-src_1 = 'subledger'    # pylint: disable=invalid-name 
-
-files_0 = dirfiles_df(f"{at_conciliations}/{src_1}", spark)
-files_1 = process_files(files_0, src_1)
-ldgr_args = (files_1, dict(date=r_date, key=fpsl_key))
-(ldgr_files, ldgr_path, ldgr_status) = files_matcher(*ldgr_args)
-ldgr_files.query('matcher > 1')        # pylint: disable=expression-not-assigned
-
-
-# COMMAND ----------
-
-# MAGIC %md 
-# MAGIC ## 2. Preparación de fuentes
-
-# COMMAND ----------
-
-# MAGIC %md  
-# MAGIC
-# MAGIC Utilizamos una llave general de fecha `key_date` para leer los archivos de las 4 fuentes.  
-# MAGIC Para cada fuente seguimos el procedimiento:  
-# MAGIC     - Identificar un archivo, y sólo uno, con la fecha proporcionada.  
-# MAGIC     - Leer los datos de acuerdo a las especificaciones definidas en la sección anterior, 
-# MAGIC y mostrar la tabla correspondiente.  
-# MAGIC     - Definir modificaciones de acuerdo a los propios reportes de conciliación, 
-# MAGIC y aplicarlos para alistar las tablas.  
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### b. Cloud Banking (C4B)
 
 # COMMAND ----------
 
@@ -202,21 +142,32 @@ c4b_data.display()
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ### a. Subledger (FPSL)
+# MAGIC %md 
+# MAGIC #### b. Subldedger (FPSL)
+
+# COMMAND ----------
+
+src_1   = 'subledger'    # pylint: disable=invalid-name 
+
+files_0 = dirfiles_df(f"{at_conciliations}/{src_1}", spark)
+files_1 = process_files(files_0, src_1)
+files_args = (files_1, dict(date=r_date, key=fpsl_key))
+(ldgr_files, ldgr_path, ldgr_status) = files_matcher(*files_args)
+ldgr_files.query('matcher > 1')
 
 # COMMAND ----------
 
 ldgr_src = Sourcer(ldgr_path, **c_layouts.fpsl_specs)
 ldgr_prep = ldgr_src.start_data(spark)
 ldgr_data = ldgr_src.setup_data(ldgr_prep)
+ldgr_data.display()
 
 ldgr_data.filter('txn_valid').display()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 3. Reportes y escrituras
+# MAGIC ## 2. Reportes y escrituras
 
 # COMMAND ----------
 
@@ -260,12 +211,7 @@ report_saver(c4b_036, f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv")
 # COMMAND ----------
 
 # MAGIC %md 
-# MAGIC ### Resultados
-
-# COMMAND ----------
-
-# MAGIC %md 
-# MAGIC #### Revisar conteo de trxns válidas. 
+# MAGIC #### Conteo de trxns válidas. 
 
 # COMMAND ----------
 
@@ -277,7 +223,7 @@ report_saver(c4b_036, f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv")
 # COMMAND ----------
 
 # MAGIC %md 
-# MAGIC #### Revisar Archivos
+# MAGIC #### Archivos Depositados
 
 # COMMAND ----------
 
