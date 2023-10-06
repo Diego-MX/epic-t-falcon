@@ -15,63 +15,42 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -q -r ../reqs_dbks.txt
+# MAGIC %run ./0_install_nb_reqs
 
 # COMMAND ----------
 
-from pyspark.sql import SparkSession
-from pyspark.dbutils import DBUtils
-import subprocess
-import yaml
-
-spark = SparkSession.builder.getOrCreate()
-dbks_secrets = DBUtils(spark).secrets
-
-with open("../user_databricks.yml", 'r') as _f: 
-    u_dbks = yaml.safe_load(_f)
-
-epicpy_load = {
-    'url'   : 'github.com/Bineo2/data-python-tools.git', 
-    'branch': 'dev-diego', 
-    'token' :  dbks_secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])}
-
-url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
-subprocess.check_call(['pip', 'install', url_call])
-
-# COMMAND ----------
+from datetime import datetime as dt
+import re
 
 from azure.storage.blob import ContainerClient
-from datetime import datetime as dt
 from pyspark.dbutils import DBUtils
-from pyspark.sql import functions as F, types as T, SparkSession
-import re
+from pyspark.sql import functions as F, SparkSession, types as T
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
-from importlib import reload
-import epic_py; reload(epic_py)
-
 from epic_py.delta import EpicDF
-from epic_py.tools import next_whole_period, past_whole_period
+from epic_py.tools import dirfiles_df, next_whole_period, past_whole_period
 
 from src.tools import write_datalake
 from config import (ConfigEnviron, 
-    t_agent, t_resources,                    
-    ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
+    t_agent, t_resourcer, DATALAKE_PATHS as paths,
+    # ENV, SERVER, RESOURCE_SETUP, 
+    )
+
+
 
 # COMMAND ----------
 
-app_environ = ConfigEnviron(ENV, SERVER, spark)
-app_environ.set_credential()
-app_environ.sparktransfer_credential()
+# app_environ = ConfigEnviron(ENV, SERVER, spark)
+# app_environ.set_credential()
+# app_environ.sparktransfer_credential()
 
-
-resources = RESOURCE_SETUP[ENV]
-abfss_slv = t_resources.get_resource_url('abfss', 'storage', container='silver')
-blob_path = t_resources.get_resource_url('blob', 'storage')
+# resources = RESOURCE_SETUP[ENV]
+abfss_slv = t_resourcer.get_resource_url('abfss', 'storage', container='silver')
+blob_path = t_resourcer.get_resource_url('blob', 'storage')
 
 datasets = f"{abfss_slv}/{paths['datasets']}"
 reports  = f"{abfss_slv}/{paths['reports']}"
@@ -79,12 +58,8 @@ reports  = f"{abfss_slv}/{paths['reports']}"
 accounts_loc = f"{datasets}/dambs/delta"
 clients_loc  = f"{datasets}/damna/delta"
 
-
 #%% Blob Things
 slv_container = ContainerClient(blob_path, 'silver', app_environ.credential) 
-
-
-
 
 # COMMAND ----------
 
@@ -125,9 +100,8 @@ print(accounts_range)
 def get_name_date(a_str): 
     to_match = re.match(r'(r2422|sispagos)_([\d\-]{10})\.csv')
     get_it = (dt.strptime(to_match.group(1), '%Y-%m-%d') 
-              if yes_match else None)
+              if to_match else None)
     return get_it
-
 
 r2422_dates = filter(None, [get_name_date(f_ish.name) 
         for f_ish in dbutils.fs.ls(f"{reports}/r2422/processed/")])
@@ -138,7 +112,6 @@ r2422_start = next_whole_period(pre_start, 'month')
 r2422_end   = past_whole_period(accounts_range['max_date'], 'month')
 
 print(f"From ({r2422_start}) to ({r2422_end})")
-
 
 # COMMAND ----------
 
@@ -186,7 +159,6 @@ sis_end   = past_whole_period(accounts_range['max_date'], 'quarter')
 
 print(f"From ({sis_start}) to ({sis_end})")
 
-
 # COMMAND ----------
 
 select_cols = ['Trimestre', 'Seccion', 'Moneda', 
@@ -232,7 +204,6 @@ for _, row in pd_r2422.iterrows():
     row_path = f"{reports}/r2422/r2422_{date_str}.csv" 
     print(f"escribiendo: {row_path}")
     write_datalake(row, row_path, slv_container, overwrite=True)
-    
 
 # COMMAND ----------
 
@@ -243,9 +214,9 @@ for _, row in pd_sispagos.iterrows():
     row_path = f"{reports}/sispagos/sispagos_{date_str}.csv" 
     print(f"escribiendo: {row_path}")
     write_datalake(row, row_path, slv_container, overwrite=True)
-    
 
 # COMMAND ----------
 
-[x.name for x in dbutils.fs.ls(reports + '/r2422/processed')]
-
+a_dir = reports + '/r2422'
+print(a_dir)
+dirfiles_df(a_dir, spark)

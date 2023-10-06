@@ -251,10 +251,10 @@ c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
 two_paths = juxt(identity, tmp_parent)
 
-base_063.save_as_file(*two_paths(f"{dir_063}/compare/{s_date}_063_comparativo.csv"))
-diffs_063.save_as_file(*two_paths(f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv"))
-gfb_063.save_as_file(*two_paths(f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv"))
-c4b_063.save_as_file(*two_paths(f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv"))
+base_063.save_as_file(*two_paths(f"{dir_063}/compare/{s_date}_063_comparativo.csv"), header=True)
+diffs_063.save_as_file(*two_paths(f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv"), header=True)
+gfb_063.save_as_file(*two_paths(f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv"), header=True)
+c4b_063.save_as_file(*two_paths(f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv"), header=True)
 
 
 # COMMAND ----------

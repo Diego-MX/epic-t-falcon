@@ -52,28 +52,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -q -r ../reqs_dbks.txt 
-
-# COMMAND ----------
-
-from pyspark.sql import SparkSession
-from pyspark.dbutils import DBUtils
-import subprocess
-import yaml
-
-spark = SparkSession.builder.getOrCreate()
-dbks_secrets = DBUtils(spark).secrets
-
-with open("../user_databricks.yml", 'r') as _f: 
-    u_dbks = yaml.safe_load(_f)
-
-epicpy_load = {
-    'url'   : 'github.com/Bineo2/data-python-tools.git', 
-    'branch': 'dev-diego', 
-    'token' :  dbks_secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])}
-
-url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
-subprocess.check_call(['pip', 'install', url_call])
+# MAGIC %run ./0_install_nb_reqs
 
 # COMMAND ----------
 
@@ -82,30 +61,29 @@ COMSNS_FRAME = 300   # Max número de días para cobrar comisiones.
 COMSNS_APPLY = 100   # Max número de comisiones para mandar en un llamado. 
 PAGE_MAX     = 200   # Max número de registros (eg. PersonSet) para pedir de un llamado. 
 
-
 # COMMAND ----------
 
 from collections import OrderedDict
 from datetime import datetime as dt, timedelta as delta
+
 from delta.tables import DeltaTable as Δ
 import pandas as pd
-from pyspark.sql import functions as F, types as T, Window as W
+from pyspark.sql import functions as F, SparkSession, types as T, Window as W
 from pytz import timezone
+
+spark = SparkSession.builder.getOrCreate()
 
 # COMMAND ----------
 
 from importlib import reload
-import epic_py; reload(epic_py)
-import config ; reload(config)
+import config; reload(config)
 
 from epic_py.delta import EpicDF, when_plus
-from epic_py.core_banking import SAPSession
-
+from epic_py.partners import SAPSession
 from src import tools
-
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths, 
-    t_agent, t_resources, t_core)
+    t_agent, t_resourcer, t_core)
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
@@ -129,9 +107,9 @@ atptx_loc = f"{at_datasets}/atpt/delta"
 # MAGIC
 # MAGIC Estatus en comisiones:   
 # MAGIC `'0.0': '0.0'`    
-# MAGIC `'1'   : 'Creado'`     
-# MAGIC `'2'   : 'Procesado'`  
-# MAGIC `'3'   : 'No procesado'`  
+# MAGIC  `'1'   : 'Creado'`     
+# MAGIC  `'2'   : 'Procesado'`  
+# MAGIC  `'3'   : 'No procesado'`  
 
 # COMMAND ----------
 

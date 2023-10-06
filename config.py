@@ -1,20 +1,22 @@
+from operator import attrgetter as σ #ϱ
 from os import environ, getenv, remove
 from pathlib import Path
 import re
+from warnings import warn
 
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 from azure.storage.blob import BlobServiceClient
+from toolz import compose_left, valmap
 
 from dotenv import load_dotenv
 from epic_py.platform import EpicIdentity
+from epic_py.tools import partial2
 
 load_dotenv('.env', override=True)
 
-# pylint: disable=unnecessary-lambda-assignment
 # pylint: disable=missing-function-docstring
 # pylint: disable=missing-class-docstring
-# pylint: disable=non-ascii-name
 
 
 SETUP_2 = {
@@ -151,7 +153,6 @@ CORE_SETUP = {
                 'grant_type': 'password',
                 'username': (1, 'core-api-user'),
                 'password': (1, 'core-api-password')} } } }
-
 
 # Env-independent Usage Variables.
 
@@ -390,10 +391,10 @@ class ConfigEnviron():
         core_config = CORE_SETUP[core_env]
         a_vault = self.use_vault(core_config.get('vault', None))
 
-        is_tuple   = lambda xx: isinstance(xx, tuple)
-        get_secret = lambda kk: a_vault.get_secret(kk).value
+        is_tuple   = partial2(isinstance, ..., tuple)
+        get_secret = compose_left(a_vault.get_secret, σ('value'))
         secret_2   = lambda vv: get_secret(vv[1]) if is_tuple(vv) else vv
-        call_dict  = lambda dd: {k: secret_2(v) for k, v in dd.items()}
+        call_dict  = partial2(valmap, secret_2, ...)
 
         sessioner = {
             'config'    : core_config,
@@ -408,3 +409,6 @@ CORE_ENV = environ.get('CORE_ENV')
 
 t_agent = EpicIdentity.create(SERVER, config=SETUP_2[ENV])
 t_resourcer = t_agent.get_resourcer(RESOURCES_2[ENV], check_all=False)
+s_secret = t_resourcer.get_vault_secretter()
+t_core = t_agent.prep_sap_connect(CORE_2[CORE_ENV], s_secret)
+

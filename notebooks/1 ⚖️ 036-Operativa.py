@@ -61,23 +61,25 @@ t_resourcer.set_dbks_permissions(t_permissions)
     'abfss', 'storage', container=ctner, blob_path=paths[p_key]))
 
 at_conciliations = λ_address('raw', 'conciliations')
-to_reports       = λ_address('gold', 'reports2')
+to_reports = λ_address('gold', 'reports2')
 
 dumps2 = lambda xx: dumps(xx, default=str)
 tmp_parent = compose_left(
-    ϱ('split', '/'), itemgetter(slice(0, -1)), 
-    partial2(add, ..., ['tmp',]), 
+    ϱ('split', '/'), itemgetter(slice(0, -1)),
+    partial2(add, ..., ['tmp',]),
     '/'.join)
-
-now_mx = dt.now(tz('America/Mexico_City'))
-yday = now_mx.date() - delta(days=1) 
-y_date = yday.strftime('%Y-%m-%d')
 
 c4b_key = dbutils.widgets.get('c4b')
 fpsl_key = dbutils.widgets.get('fpsl')
 w_date = dbutils.widgets.get('date')
-s_date = w_date if w_date != 'yyyy-mm-dd' else y_date
-r_date = dt.strptime(s_date, '%Y-%m-%d')
+
+if w_date == 'yyyy-mm-dd': 
+    now_mx = dt.now(tz('America/Mexico_City'))
+    r_date = now_mx.date() - delta(days=1) 
+    s_date = r_date.strftime('%Y-%m-%d')
+else: 
+    r_date = dt.strptime(w_date, '%Y-%m-%d')
+    s_date = w_date
 
 # COMMAND ----------
 
@@ -118,7 +120,9 @@ files_1 = process_files(files_0, src_0)
 
 c4b_results = files_matcher(files_1, dict(date=r_date, key=c4b_key))
 (c4b_files, c4b_path, c4b_status) = c4b_results
-c4b_files.query('matcher > 0')
+(c4b_files.query('matcher > 0')
+    .reset_index()
+    .loc[:, ['name', 'key', 'date', 'matcher', 'size', 'modificationTime']])
 
 # COMMAND ----------
 
@@ -133,7 +137,9 @@ files_0 = dirfiles_df(f"{at_conciliations}/{src_1}", spark)
 files_1 = process_files(files_0, src_1)
 ldgr_results = files_matcher(files_1, dict(date=r_date, key=fpsl_key))
 (ldgr_files, ldgr_path, ldgr_status) = ldgr_results
-ldgr_files.query('matcher > 0')
+(ldgr_files.query('matcher > 0')
+    .reset_index()
+    .loc[:,['name', 'key', 'date', 'matcher', 'size', 'modificationTime']])
 
 # COMMAND ----------
 
@@ -170,15 +176,6 @@ prod_dict = {
     'EPC_TA_MAX': 'EPC_TA_MA1',
     'EPC_LA_PER': 'EPC_LA_PE1'}
 
-fpsl_acct = {
-    '1505040000': None,
-    '2136013700': None,
-    '2315040100': None,
-    '5206041001': None,
-    '5216110501': None,
-    '5216110503': None,
-    '9101050100': None}
-    
 prod_df = spark.createDataFrame([name_item(('tipo_prod', 'ACCOUNTPRODUCTID'))(p_item) 
         for p_item in prod_dict.items()])
 
@@ -237,19 +234,20 @@ base_adj = (fpsl_cuenta
         on=['num_cuenta', 'clave_txn', 'tipo_prod']))
 
 two_paths = juxt(identity, tmp_parent)
-base_adj.save_as_file(*two_paths(f"{dir_036}/compare/{s_date}_036_comparativo.csv"))
-diffs_036.save_as_file(*two_paths(f"{dir_036}/discrepancies/{s_date}_036_discrepancias.csv"))
-fpsl_036.save_as_file(*two_paths(f"{dir_036}/subledger/{s_date}_036_fpsl.csv"))
-c4b_036.save_as_file(*two_paths(f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv"))
+base_adj.save_as_file(*two_paths(f"{dir_036}/compare/{s_date}_036_comparativo.csv"), header=True)
+diffs_036.save_as_file(*two_paths(f"{dir_036}/discrepancies/{s_date}_036_discrepancias.csv"), header=True)
+fpsl_036.save_as_file(*two_paths(f"{dir_036}/subledger/{s_date}_036_fpsl.csv"), header=True)
+c4b_036.save_as_file(*two_paths(f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv"), header=True)
 
 # COMMAND ----------
 
 # MAGIC %md 
 # MAGIC ### Resultados
-# MAGIC
-# MAGIC Aquí vemos algunos de los resultados claves de le ejecución:  
-# MAGIC - Procesos que no se concluyeron.  
-# MAGIC - Resumenes de los que sí.  
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC #### Revisar conteo de trxns válidas. 
 
 # COMMAND ----------
 
@@ -257,3 +255,15 @@ c4b_036.save_as_file(*two_paths(f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv")
     .groupBy('check_key')
     .count()
     .display())
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC #### Revisar Archivos
+
+# COMMAND ----------
+
+from epic_py.tools import dirfiles_df
+a_dir = f"{dir_036}/compare/processed"
+print(a_dir)
+dirfiles_df(a_dir, spark)
