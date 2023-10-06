@@ -1,60 +1,89 @@
-from datetime import datetime 
-from delta.tables import DeltaTable as Δ
-import pandas as pd
-from pydantic import BaseModel, Field
-from pydantic.dataclasses import dataclass
+from datetime import datetime
+from pandas import DataFrame as pd_DF
+from pydantic import BaseModel, validator
 from typing import List, Optional
 
-from src.utilities import snake_2_camel
+from epic_py.tools import str_plus, MatchCase, partial2
 
+
+snake_2_camel = lambda a_str: str_plus(a_str).to_camel()
+
+camelize_alias = partial2(snake_2_camel, ..., 
+    first_too=True, post_sub={'Id': 'ID'})
+
+dt_parser = MatchCase(via=type, case_dict={
+    str : partial2(datetime.strptime, ..., "%Y%m%d"), 
+    None: lambda to_dt: to_dt})
 
 
 class Fee(BaseModel): 
-    account_id     : str = Field(alias='AccountID')
+    class Config:
+        alias_generator = camelize_alias
+        allow_population_by_field_name = True
+        json_encoders = {
+            datetime: lambda dt: dt.strftime('%Y%m%d')}
+
+    account_id     : str
     type_code      : str 
-    posting_date   : datetime
+    posting_date   : datetime 
     value_date     : datetime
     amount         : Optional[float] = None 
     currency       : str
     payment_note   : str
-    txn_ref_number : str   # Este no es requisito de la API.   
-    
-    class Config:
-        alias_generator = snake_2_camel
-        json_encoders = {
-            datetime: lambda dt: dt.strftime('%Y%m%d')}
-        allow_population_by_field_name = True
+    # Estos fueron agregados después. 
+    transaction_id : str
+    pos_fee        : Optional[str] 
+    status_process : Optional[int]
+    status_descr   : Optional[str]
+    log_msg        : Optional[str]
+    external_id    : Optional[str]
+    process_date   : Optional[datetime] 
     
 
+    # Todos los fields con DATETIME les aplicamos este validator. 
+    # No hemos encontrado cómo hacerlo generalizado. 
+    @validator('posting_date', pre=True)
+    def parse_posting_date(cls, v): 
+        return dt_parser(v)
+
+    @validator('value_date', pre=True)
+    def parse_value_date(cls, v): 
+        return dt_parser(v)
+
+    @validator('process_date', pre=True)
+    def parse_process_date(cls, v): 
+        return dt_parser(v)
+
+
 class FeeSet(BaseModel): 
-    external_id  : str=Field(alias='ExternalID')
+    class Config:
+        alias_generator = camelize_alias
+        json_encoders = {
+            datetime: lambda a_dt: a_dt.strftime('%Y%m%d')}
+        allow_population_by_field_name = True
+
+    external_id  : str
     process_date : datetime
     status       : Optional[str]
     fee_detail   : List[Fee]
     
-    def as_dataframe(self, w_status=None) -> pd.DataFrame: 
-        if w_status is None: 
-            w_status = self.status
-        
-        details = [{ f"fee_{kk}": vv for kk, vv in fee} 
-                        for fee in self.fee_detail]
-        feemass = {"feemass_external_id": self.external_id, 
-                   "feemass_process_date": self.process_date, 
-                   "feemass_status"     : w_status}
-        details_df = (pd.DataFrame(details)
+    def __len__(self):  
+        return len(self.FeeDetail)
+
+    def as_dataframe(self) -> pd_DF: 
+        feemass = {kk: vv for kk, vv in self 
+                if kk != 'fee_detail' and vv is not None}
+        details = [{kk: vv for kk, vv in fee if vv is not None} 
+                for fee in self.fee_detail]
+
+        details_df = (pd_DF(details)
             .assign(**feemass))
+            
         return details_df
     
-    def __len__(self): 
-        return len(self.FeeDetail)
-    
-    class Config:
-        alias_generator = snake_2_camel
-        json_encoders = {
-            datetime: lambda dt: dt.strftime('%Y%m%d')}
-        allow_population_by_field_name = True
+    @validator('process_date', pre=True)
+    def parse_process_date(cls, v): 
+        return dt_parser(v)
+
     
     
-    
-        
-        

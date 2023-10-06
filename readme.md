@@ -70,7 +70,7 @@ El esquema general es:
 
 # Secuencia técnica  
 
-... por desarrollar  
+En la continuación del desarrollo de este módulo colaborativo describimos los _notebooks_ y módulos q
 
 [runbook]: https://bineo.atlassian.net/wiki/spaces/~6282a2fbd9ddcc006e9c3438/pages/1725595654/Conciliaciones+-+runbook
 
