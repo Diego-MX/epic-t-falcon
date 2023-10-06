@@ -74,11 +74,7 @@ c4b_key = dbutils.widgets.get('c4b_spei')
 recoif_key = dbutils.widgets.get('recoif')
 w_date = dbutils.widgets.get('date')
 
-<<<<<<< HEAD
-if w_date != 'yyyy-mm-dd':
-=======
 if w_date == 'yyyy-mm-dd':
->>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
     now_mx = dt.now(tz('America/Mexico_City'))      # pylint: disable=invalid-name
     r_date = now_mx.date() - delta(days=1) 
     s_date = r_date.strftime('%Y-%m-%d')
@@ -136,16 +132,11 @@ pre_files = pipe(at_banking,
     partial2(process_files, ..., src_0))
 
 (c4b_files, c4b_path, c4b_status) = pipe(pre_files, 
-<<<<<<< HEAD
-    partial2(files_matcher, ..., dict(date=r_date, key2=c4b_key)))
-c4b_files.query('matcher > 0')
-=======
     partial2(files_matcher, ..., dict(date=s_date, key2=c4b_key)))
 (c4b_files.query('matcher > 0')
     .reset_index()
     .sort_values(['matcher', 'date', 'modificationTime'], ascending=[False, False, False])
     .loc[:, ['matcher', 'key1', 'date', 'key2', 'modificationTime', 'size', 'name']])
->>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
 
 # COMMAND ----------
 
@@ -177,18 +168,12 @@ src_1 = 'spei-ledger'    # pylint: disable=invalid-name
 files_0 = dirfiles_df(at_ledger, spark)
 files_1 = process_files(files_0, src_1)
 (gfb_files, gfb_path, gfb_status) = pipe(files_1, 
-<<<<<<< HEAD
-    partial2(files_matcher, ..., dict(date=r_date, key=recoif_key))) 
-
-gfb_files.query('matcher > 0')
-=======
     partial2(files_matcher, ..., dict(date=s_date, key=recoif_key))) 
 
 (gfb_files.query('matcher > 1')
     .reset_index()
     .sort_values(['matcher', 'date', 'modificationTime'], ascending=[False, False, False])
     .loc[:, ['matcher', 'key', 'date', 'modificationTime', 'size', 'name']])
->>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
 
 # COMMAND ----------
 
@@ -223,12 +208,6 @@ c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
 two_paths = juxt(identity, tmp_parent)
 
-<<<<<<< HEAD
-base_063.save_as_file(*two_paths(f"{dir_063}/compare/{s_date}_063_comparativo.csv"), header=True)
-diffs_063.save_as_file(*two_paths(f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv"), header=True)
-gfb_063.save_as_file(*two_paths(f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv"), header=True)
-c4b_063.save_as_file(*two_paths(f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv"), header=True)
-=======
 base_063.save_as_file(*two_paths(f"{dir_063}/compare/{s_date}_063_comparativo.csv"), 
         header=False)
 diffs_063.save_as_file(*two_paths(f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv"), 
@@ -237,7 +216,6 @@ gfb_063.save_as_file(*two_paths(f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv"
         header=False)
 c4b_063.save_as_file(*two_paths(f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv"), 
         header=False)
->>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
 
 
 # COMMAND ----------
@@ -274,12 +252,3 @@ base_063.display()
 check_dir = f"{dir_063}/compare"      # {s_date}_063_comparativo.csv"
 (dirfiles_df(check_dir, spark)
     .sort_values('modificationTime', ascending=False))
-<<<<<<< HEAD
-
-# COMMAND ----------
-
-a_df = (spark.read
-    .csv(f"{check_dir}"))
-a_df.display()
-=======
->>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36

@@ -8,7 +8,7 @@
 
 # COMMAND ----------
 
-epicpy_ref = 'gh-1.2'  # pylint: disable=invalid-name
+epicpy_ref = 'gh-1.4'  # pylint: disable=invalid-name
 # pylint: disable=wrong-import-position,wrong-import-order
 # pylint: disable=no-name-in-module,unspecified-encoding,import-error
 
