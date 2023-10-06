@@ -1,12 +1,12 @@
 # pylint: disable=missing-module-docstring
-from operator import methodcaller as ϱ
+from operator import methodcaller as ϱ, attrgetter as σ
 import pandas as pd
 from pandas import DataFrame as pd_DF
 from pyspark.sql import functions as F, types as T
 from toolz import compose_left
 
 from epic_py.delta import EpicDF, when_plus
-from epic_py.tools import packed
+from epic_py.tools import packed, partial2
 
 # pylint: disable=dangerous-default-value
 # pylint: disable=invalid-name
@@ -129,8 +129,10 @@ date_formats = {
     'spei-ledger' : '%d%m%Y'}
 
 def process_files(file_df: pd_DF, a_src) -> pd_DF: 
-    date_fmtr = lambda df: pd.to_datetime(df['date'], 
-                format=date_formats.get(a_src, '%Y%m%d'))
+    date_fmt = date_formats.get(a_src, '%Y%m%d')
+    date_fmtr = compose_left(σ('date'), # df: df.date > to_datetime(...)
+        partial2(pd.to_datetime, ..., format=date_fmt), 
+        σ('dt.date'))
     file_keys = (file_df['name'].str.extract(file_formats[a_src])
         .assign(date=date_fmtr, source=a_src))
     return pd.concat([file_df, file_keys], axis=1)
@@ -144,7 +146,8 @@ def files_matcher(files_df, match_dict):
     w_match = (files_df
         .assign(matcher=matcher)
         .sort_values(['matcher', *match_dict], ascending=False)
-        .reset_index())
+        .reset_index()
+        .loc[:, ['matcher', *match_dict, 'modificationTime', 'name', 'size', 'path']])
     
     are_max = (matcher == max(matcher))
     one_match = (sum(are_max) == 1)

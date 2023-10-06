@@ -115,9 +115,9 @@ data_src   = 'subledger'    # pylint: disable=invalid-name
 
 files_0 = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
 files_1 = process_files(files_0, data_src)
-ldgr_results = files_matcher(files_1, dict(date=r_date, key=fpsl_key))
-(ldgr_files, ldgr_path, ldgr_status) = ldgr_results
-ldgr_files.query('matcher > 0')
+files_args = (files_1, dict(date=r_date, key=fpsl_key))
+(ldgr_files, ldgr_path, ldgr_status) = files_matcher(*files_args)
+ldgr_files.query('matcher > 1')
 
 # COMMAND ----------
 
@@ -133,15 +133,12 @@ ldgr_data.display()
 
 # COMMAND ----------
 
-data_src  = 'cloud-banking'     # pylint: disable=invalid-name
+data_src  = 'cloud-banking'         # pylint: disable=invalid-name
 files_0 = dirfiles_df(f"{at_conciliations}/{data_src}", spark)
 files_1 = process_files(files_0, data_src)
-
-c4b_results = files_matcher(files_1, dict(date=r_date, key=c4b_key))
-(c4b_files, c4b_path, c4b_status) = c4b_results
-(c4b_files.query('matcher > 0')     # pylint: disable=expression-not-assigned
-    .reset_index()
-    .loc[:, ['name', 'key', 'date', 'matcher', 'size', 'modificationTime']])
+c4b_args = (files_1, dict(date=r_date, key=c4b_key))
+(c4b_files, c4b_path, c4b_status) = files_matcher(*c4b_args)
+c4b_files.query('matcher > 1')     # pylint: disable=expression-not-assigned  
 
 # COMMAND ----------
 
@@ -154,11 +151,10 @@ src_1 = 'subledger'    # pylint: disable=invalid-name
 
 files_0 = dirfiles_df(f"{at_conciliations}/{src_1}", spark)
 files_1 = process_files(files_0, src_1)
-ldgr_results = files_matcher(files_1, dict(date=r_date, key=fpsl_key))
-(ldgr_files, ldgr_path, ldgr_status) = ldgr_results
-(ldgr_files.query('matcher > 0')        # pylint: disable=expression-not-assigned
-    .reset_index()
-    .loc[:,['name', 'key', 'date', 'matcher', 'size', 'modificationTime']])
+ldgr_args = (files_1, dict(date=r_date, key=fpsl_key))
+(ldgr_files, ldgr_path, ldgr_status) = files_matcher(*ldgr_args)
+ldgr_files.query('matcher > 1')        # pylint: disable=expression-not-assigned
+
 
 # COMMAND ----------
 
@@ -253,15 +249,13 @@ base_adj = (fpsl_cuenta
     .join(base_036, how='right', 
         on=['num_cuenta', 'clave_txn', 'tipo_prod']))
 
-two_paths = juxt(identity, tmp_parent)
-base_adj.save_as_file(*two_paths(f"{dir_036}/compare/{s_date}_036_comparativo.csv"),
-    header=True)
-diffs_036.save_as_file(*two_paths(f"{dir_036}/discrepancies/{s_date}_036_discrepancias.csv"),
-    header=True)
-fpsl_036.save_as_file(*two_paths(f"{dir_036}/subledger/{s_date}_036_fpsl.csv"),
-    header=True)
-c4b_036.save_as_file(*two_paths(f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv"),
-    header=True)
+report_saver = (lambda a_df, path: 
+    a_df.save_as_file(path, tmp_parent(path), header=True))
+
+report_saver(base_adj, f"{dir_036}/compare/{s_date}_036_comparativo.csv")
+report_saver(diffs_036, f"{dir_036}/discrepancies/{s_date}_036_discrepancias.csv")
+report_saver(fpsl_036, f"{dir_036}/subledger/{s_date}_036_fpsl.csv")
+report_saver(c4b_036, f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv")
 
 # COMMAND ----------
 

@@ -125,13 +125,9 @@ src_0 = 'spei-banking'    # pylint: disable=invalid-name
 pre_files = pipe(at_banking, 
     partial2(dirfiles_df, ..., spark), 
     partial2(process_files, ..., src_0))
-
-(c4b_files, c4b_path, c4b_status) = pipe(pre_files, 
-    partial2(files_matcher, ..., dict(date=s_date, key2=c4b_key)))
-(c4b_files.query('matcher > 0')     # pylint: disable=expression-not-assigned
-    .reset_index()
-    .sort_values(['matcher', 'date', 'modificationTime'], ascending=[False, False, False])
-    .loc[:, ['matcher', 'key1', 'date', 'key2', 'modificationTime', 'size', 'name']])
+c4b_args = (pre_files, dict(date=s_date, key2=c4b_key))
+(c4b_files, c4b_path, c4b_status) = files_matcher(*c4b_args)
+c4b_files.query('matcher > 0')     # pylint: disable=expression-not-assigned
 
 # COMMAND ----------
 
@@ -162,13 +158,9 @@ src_1 = 'spei-ledger'    # pylint: disable=invalid-name
 
 files_0 = dirfiles_df(at_ledger, spark)
 files_1 = process_files(files_0, src_1)
-(gfb_files, gfb_path, gfb_status) = pipe(files_1, 
-    partial2(files_matcher, ..., dict(date=s_date, key=recoif_key))) 
-
-(gfb_files.query('matcher > 1')     # pylint: disable=expression-not-assigned
-    .reset_index()
-    .sort_values(['matcher', 'date', 'modificationTime'], ascending=[False, False, False])
-    .loc[:, ['matcher', 'key', 'date', 'modificationTime', 'size', 'name']])
+gfb_args = (files_1, dict(date=s_date, key=recoif_key))
+(gfb_files, gfb_path, gfb_status) = files_matcher(*gfb_args)
+gfb_files.query('matcher > 1')     # pylint: disable=expression-not-assigned
 
 # COMMAND ----------
 
@@ -202,12 +194,13 @@ gfb_063    = report_063.filter_checks(base_063, ['gfb', 'indeterminada'])
 c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
 #path_args = lambda path: (path, tmp_parent(path), header=True)
-table_saver = lambda x_df, path: x_df.save_as_file(path, tmp_parent(path), header=True)
+report_saver = (lambda x_df, path: 
+    x_df.save_as_file(path, tmp_parent(path), header=True))
 
-table_saver(diffs_063, f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv")
-table_saver(base_063, f"{dir_063}/compare/{s_date}_063_comparativo.csv")
-table_saver(gfb_063, f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv")
-table_saver(c4b_063, f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv")
+report_saver(diffs_063, f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv")
+report_saver(base_063, f"{dir_063}/compare/{s_date}_063_comparativo.csv")
+report_saver(gfb_063, f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv")
+report_saver(c4b_063, f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv")
 
 
 # COMMAND ----------
