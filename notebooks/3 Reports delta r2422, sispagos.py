@@ -18,37 +18,36 @@
 # MAGIC %run ./0_install_nb_reqs
 
 # COMMAND ----------
+# pylint: disable=wrong-import-position
+from datetime import datetime as dt
+import re
 
 from azure.storage.blob import ContainerClient
-from datetime import datetime as dt
-from pyspark.dbutils import DBUtils
-from pyspark.sql import functions as F, types as T, SparkSession
-import re
+from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
+from pyspark.sql import functions as F, SparkSession, types as T
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
-from importlib import reload
-import epic_py; reload(epic_py)
-
 from epic_py.delta import EpicDF
-from epic_py.tools import next_whole_period, past_whole_period
+from epic_py.tools import dirfiles_df, next_whole_period, past_whole_period
 
 from src.tools import write_datalake
-from config import (ConfigEnviron, 
-    t_agent, t_resourcer,                    
-    ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths)
+from config import (t_agent, t_resourcer, DATALAKE_PATHS as paths,
+    # ENV, SERVER, RESOURCE_SETUP, 
+    ConfigEnviron)
+
+
 
 # COMMAND ----------
 
-app_environ = ConfigEnviron(ENV, SERVER, spark)
-app_environ.set_credential()
-app_environ.sparktransfer_credential()
+# app_environ = ConfigEnviron(ENV, SERVER, spark)
+# app_environ.set_credential()
+# app_environ.sparktransfer_credential()
 
-
-resources = RESOURCE_SETUP[ENV]
+# resources = RESOURCE_SETUP[ENV]
 abfss_slv = t_resourcer.get_resource_url('abfss', 'storage', container='silver')
 blob_path = t_resourcer.get_resource_url('blob', 'storage')
 
@@ -57,7 +56,6 @@ reports  = f"{abfss_slv}/{paths['reports']}"
 
 accounts_loc = f"{datasets}/dambs/delta"
 clients_loc  = f"{datasets}/damna/delta"
-
 
 #%% Blob Things
 slv_container = ContainerClient(blob_path, 'silver', app_environ.credential) 
@@ -114,7 +112,6 @@ r2422_end   = past_whole_period(accounts_range['max_date'], 'month')
 
 print(f"From ({r2422_start}) to ({r2422_end})")
 
-
 # COMMAND ----------
 
 clients_genders = (EpicDF(spark, clients_loc)
@@ -161,7 +158,6 @@ sis_end   = past_whole_period(accounts_range['max_date'], 'quarter')
 
 print(f"From ({sis_start}) to ({sis_end})")
 
-
 # COMMAND ----------
 
 select_cols = ['Trimestre', 'Seccion', 'Moneda', 
@@ -207,7 +203,6 @@ for _, row in pd_r2422.iterrows():
     row_path = f"{reports}/r2422/r2422_{date_str}.csv" 
     print(f"escribiendo: {row_path}")
     write_datalake(row, row_path, slv_container, overwrite=True)
-    
 
 # COMMAND ----------
 
@@ -218,9 +213,9 @@ for _, row in pd_sispagos.iterrows():
     row_path = f"{reports}/sispagos/sispagos_{date_str}.csv" 
     print(f"escribiendo: {row_path}")
     write_datalake(row, row_path, slv_container, overwrite=True)
-    
 
 # COMMAND ----------
 
-[x.name for x in dbutils.fs.ls(reports + '/r2422/processed')]
-
+a_dir = reports + '/r2422'
+print(a_dir)
+dirfiles_df(a_dir, spark)

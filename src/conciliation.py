@@ -9,6 +9,7 @@ from epic_py.delta import EpicDF, when_plus
 from epic_py.tools import packed
 
 # pylint: disable=dangerous-default-value
+# pylint: disable=invalid-name
 # pylint: disable=missing-class-docstring
 
 schema_types = {
@@ -19,12 +20,12 @@ schema_types = {
 class Sourcer(): 
     def __init__(self, path, **kwargs): 
         self.path = path
-        self.name = kwargs.get('name' )
+        self.name = kwargs.get('name')
         self.alias = kwargs.get('alias')
-        self.options = kwargs.get('options',{})
+        self.match = kwargs.get('match', {})
         self.mutate = kwargs.get('mutate', {})
         self.schema = kwargs.get('schema', {})
-        self.match = kwargs.get('match',  {})
+        self.options = kwargs.get('options', {})
         
     def start_data(self, spark): 
         a_schema = self._prep_schema()
