@@ -26,13 +26,12 @@ from pytz import timezone as tz
 
 from pyspark.dbutils import DBUtils     # pylint: disable=no-name-in-module,import-error
 from pyspark.sql import SparkSession, functions as F
-from toolz import compose_left, identity, juxt, pipe
+from toolz import compose_left, pipe
 
 from epic_py.tools import dirfiles_df, partial2
 from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
 from refs.layouts import conciliations as c_layouts
-from src.conciliation import (Sourcer, Conciliator,
-    files_matcher, get_source_path, process_files)
+from src.conciliation import Sourcer, Conciliator, files_matcher, process_files
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
@@ -54,10 +53,6 @@ dbutils.widgets.text('recoif', '900002')
 t_storage = t_resourcer['storage']
 t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')
 # t_resourcer.set_dbks_permissions(t_permissions)
-<<<<<<< HEAD
-=======
-
->>>>>>> 0d63371b8477e34121abc6fcf4f4329238a0ba36
 λ_address = (lambda cc, pp : t_resourcer.get_resource_url(
     'abfss', 'storage', container=cc, blob_path=pp))
 
@@ -133,7 +128,7 @@ pre_files = pipe(at_banking,
 
 (c4b_files, c4b_path, c4b_status) = pipe(pre_files, 
     partial2(files_matcher, ..., dict(date=s_date, key2=c4b_key)))
-(c4b_files.query('matcher > 0')
+(c4b_files.query('matcher > 0')     # pylint: disable=expression-not-assigned
     .reset_index()
     .sort_values(['matcher', 'date', 'modificationTime'], ascending=[False, False, False])
     .loc[:, ['matcher', 'key1', 'date', 'key2', 'modificationTime', 'size', 'name']])
@@ -170,7 +165,7 @@ files_1 = process_files(files_0, src_1)
 (gfb_files, gfb_path, gfb_status) = pipe(files_1, 
     partial2(files_matcher, ..., dict(date=s_date, key=recoif_key))) 
 
-(gfb_files.query('matcher > 1')
+(gfb_files.query('matcher > 1')     # pylint: disable=expression-not-assigned
     .reset_index()
     .sort_values(['matcher', 'date', 'modificationTime'], ascending=[False, False, False])
     .loc[:, ['matcher', 'key', 'date', 'modificationTime', 'size', 'name']])
@@ -206,16 +201,13 @@ diffs_063  = report_063.filter_checks(base_063, '~valida')
 gfb_063    = report_063.filter_checks(base_063, ['gfb', 'indeterminada'])
 c4b_063    = report_063.filter_checks(base_063, ['c4b', 'indeterminada'])
 
-two_paths = juxt(identity, tmp_parent)
+#path_args = lambda path: (path, tmp_parent(path), header=True)
+table_saver = lambda x_df, path: x_df.save_as_file(path, tmp_parent(path), header=True)
 
-base_063.save_as_file(*two_paths(f"{dir_063}/compare/{s_date}_063_comparativo.csv"), 
-        header=False)
-diffs_063.save_as_file(*two_paths(f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv"), 
-        header=False)
-gfb_063.save_as_file(*two_paths(f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv"), 
-        header=False)
-c4b_063.save_as_file(*two_paths(f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv"), 
-        header=False)
+table_saver(diffs_063, f"{dir_063}/discrepancies/{s_date}_063_discrepancias.csv")
+table_saver(base_063, f"{dir_063}/compare/{s_date}_063_comparativo.csv")
+table_saver(gfb_063, f"{dir_063}/subledger/{s_date}_063_spei-gfb.csv")
+table_saver(c4b_063, f"{dir_063}/cloud-banking/{s_date}_063_spei-c4b.csv")
 
 
 # COMMAND ----------
