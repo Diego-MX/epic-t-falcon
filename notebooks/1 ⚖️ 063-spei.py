@@ -125,7 +125,7 @@ src_0 = 'spei-banking'    # pylint: disable=invalid-name
 pre_files = pipe(at_banking, 
     partial2(dirfiles_df, ..., spark), 
     partial2(process_files, ..., src_0))
-c4b_args = (pre_files, dict(date=s_date, key2=c4b_key))
+c4b_args = (pre_files, dict(date=r_date, key2=c4b_key))
 (c4b_files, c4b_path, c4b_status) = files_matcher(*c4b_args)
 c4b_files.query('matcher > 0')     # pylint: disable=expression-not-assigned
 
@@ -158,7 +158,7 @@ src_1 = 'spei-ledger'    # pylint: disable=invalid-name
 
 files_0 = dirfiles_df(at_ledger, spark)
 files_1 = process_files(files_0, src_1)
-gfb_args = (files_1, dict(date=s_date, key=recoif_key))
+gfb_args = (files_1, dict(date=r_date, key=recoif_key))
 (gfb_files, gfb_path, gfb_status) = files_matcher(*gfb_args)
 gfb_files.query('matcher > 1')     # pylint: disable=expression-not-assigned
 
