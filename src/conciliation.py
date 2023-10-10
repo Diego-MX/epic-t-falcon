@@ -142,7 +142,9 @@ def files_matcher(files_df, match_dict):
     nn, pp = len(files_df), len(match_dict)
     matcher = pd.Series(0, range(nn))
     for ii, kv in enumerate(match_dict.items()): 
-        matcher += (pp-ii) * (files_df[kv[0]] == kv[1]).astype(int)
+        k_srs, v_val = files_df[kv[0]], kv[1]
+        print(f"Compare types: {k_srs.dtype}, {type(v_val)}")
+        matcher += (pp-ii) * (k_srs == v_val).astype(int)
     w_match = (files_df
         .assign(matcher=matcher)
         .sort_values(['matcher', *match_dict], ascending=False)
