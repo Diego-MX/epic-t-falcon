@@ -28,36 +28,19 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -q -r ../reqs_dbks.txt
+# MAGIC %run ./0_install_nb_reqs
 
 # COMMAND ----------
 
-from pyspark.dbutils import DBUtils
-from pyspark.sql import SparkSession
-import subprocess
-import yaml
-
-spark = SparkSession.builder.getOrCreate()
-dbutils = DBUtils(spark)
-
-epicpy_load = {
-    'url'   : 'github.com/Bineo2/data-python-tools.git', 
-    'branch': 'dev-diego'}
-
-with open("../user_databricks.yml", 'r') as _f: 
-    u_dbks = yaml.safe_load(_f)
-
-epicpy_load['token'] = dbutils.secrets.get(u_dbks['dbks_scope'], u_dbks['dbks_token'])
-url_call = "git+https://{token}@{url}@{branch}".format(**epicpy_load)
-subprocess.check_call(['pip', 'install', url_call])
-
-# COMMAND ----------
+from pathlib import Path
+import re
 
 from azure.storage.blob import ContainerClient
 import numpy as np
 import pandas as pd
-from pathlib import Path
-import re
+from pyspark.dbutils import DBUtils
+from pyspark.sql import SparkSession
+
 from zipfile import ZipFile
 
 # COMMAND ----------

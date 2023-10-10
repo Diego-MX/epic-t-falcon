@@ -2,7 +2,6 @@ from delta.tables import DeltaTable as Δ
 from pandas import DataFrame as pd_DF
 from pyspark.sql import functions as F, Column
 from typing import Union
-    
         
 def len_cols(cols_df: pd_DF) -> int: 
     # Ya ni me acuerdo para que sirve. 
@@ -15,14 +14,9 @@ def len_cols(cols_df: pd_DF) -> int:
     up_to = -1 if last_fill else len(cols_df)
     the_len = cols_df['Length'][:up_to].sum()
     return int(the_len)
-    
 
 def get_date(a_col: Union[str, Column]) -> Column: 
     date_reg = r'20[\d\-]{8}'
     date_col = F.to_date(F.regexp_extract(a_col, date_reg, 0), 'y-M-d')
-    # Antes tenía el formato "yyyy-mm-dd".  
-    # Este formato funciona para Python, mas no para Spark. 🤦
+    # Los formateadores de Spark, son diferentes que Python. 
     return date_col
-
-
-   

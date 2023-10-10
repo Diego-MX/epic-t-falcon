@@ -37,11 +37,9 @@ import config; reload(config)
 from src import tools, utilities as utils; reload(tools); reload(utils)
 from src import sftp_sources as sftp; reload(sftp)
 
-from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP, 
-    DATALAKE_PATHS as paths, 
-    t_agent, t_resourcer,
-    CORE_2, CORE_ENV)
+from config import (t_agent, t_resourcer,
+    DATALAKE_PATHS as paths, CORE_2, CORE_ENV, 
+    ConfigEnviron, ENV, SERVER, RESOURCE_SETUP)
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)
@@ -88,8 +86,7 @@ table_keys = {
     'damna' : ['amna_acct', 'rank_acct'], 
     'dambs' : ['ambs_acct', 'rank_acct'], 
     'dambs2': ['ambs_acct', 'rank_acct'], 
-    'dambsc': ['ambs_acct', 'rank_acct']
-    }  
+    'dambsc': ['ambs_acct', 'rank_acct']}  
 
 readies_Δ = {}
 table_keys.keys()

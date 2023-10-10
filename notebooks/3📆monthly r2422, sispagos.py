@@ -18,12 +18,16 @@
 # MAGIC %run ./0_install_nb_reqs
 
 # COMMAND ----------
+
 # pylint: disable=wrong-import-position
 from datetime import datetime as dt
+from operator import attrgetter as σ, methodcaller as ϱ
 import re
 
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
 from pyspark.sql import functions as F, SparkSession, types as T
+from toolz import compose_left, pipe
+from toolz.curried import map as map_z
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
@@ -31,34 +35,34 @@ dbutils = DBUtils(spark)
 # COMMAND ----------
 
 from epic_py.delta import EpicDF
-from epic_py.tools import dirfiles_df, next_whole_period, past_whole_period
+from epic_py.tools import (dirfiles_df, partial2, 
+    next_whole_period, past_whole_period)
 
-from src.tools import write_datalake
+from src.tools import write_pandas
 from config import t_resourcer, DATALAKE_PATHS as paths
     # ENV, SERVER, RESOURCE_SETUP, t_agent, ConfigEnviron
-    
-
-
 
 # COMMAND ----------
 
-# app_environ = ConfigEnviron(ENV, SERVER, spark)
-# app_environ.set_credential()
-# app_environ.sparktransfer_credential()
-
-# resources = RESOURCE_SETUP[ENV]
 abfss_slv = t_resourcer.get_resource_url('abfss', 'storage', container='silver')
 blob_path = t_resourcer.get_resource_url('blob', 'storage')
 
 datasets = f"{abfss_slv}/{paths['datasets']}"
-reports  = f"{abfss_slv}/{paths['reports']}"
 
 accounts_loc = f"{datasets}/dambs/delta"
 clients_loc  = f"{datasets}/damna/delta"
 
-#%% Blob Things
-# slv_container = ContainerClient(blob_path, 'silver', app_environ.credential) 
 slv_container = t_resourcer.get_storage_client(container='silver')
+
+def get_name_date(a_str): 
+    to_match = re.match(r'(r2422|sispagos)_([\d\-]{10})\.csv', a_str)
+    get_it = (dt.strptime(to_match.group(2), '%Y-%m-%d') if to_match else None)
+    return get_it.date()
+
+dir_dates = compose_left(dbutils.fs.ls, 
+    map_z(σ('name')), 
+    map_z(get_name_date), 
+    partial2(filter, None))
 
 # COMMAND ----------
 
@@ -82,8 +86,8 @@ cms_tables = {
     'accounts': 'nayru_accounts.slv_ops_cms_dambs_stm', }
 
 accounts_range = (EpicDF(spark, accounts_loc)
-    .select(F.max('file_date').alias('max_date'), 
-            F.min('file_date').alias('min_date'))
+    .select(F.min('file_date').alias('min_date'), 
+            F.max('file_date').alias('max_date'))
     .collect()[0])
 
 print(accounts_loc)
@@ -96,15 +100,7 @@ print(accounts_range)
 
 # COMMAND ----------
 
-def get_name_date(a_str): 
-    to_match = re.match(r'(r2422|sispagos)_([\d\-]{10})\.csv', a_str)
-    get_it = (dt.strptime(to_match.group(1), '%Y-%m-%d') 
-              if to_match else None)
-    return get_it
-
-r2422_dates = filter(None, [get_name_date(f_ish.name) 
-        for f_ish in dbutils.fs.ls(f"{reports}/r2422/processed/")])
-
+r2422_dates = list(dir_dates(f"{abfss_slv}/{paths['reports']}/r2422/processed/"))
 pre_start = max(r2422_dates) if any(r2422_dates) else accounts_range['min_date']
 
 r2422_start = next_whole_period(pre_start, 'month')    
@@ -126,8 +122,8 @@ accounts = (EpicDF(spark, accounts_loc)
     .withColumn('cuenta_mes', (F.col('n_reps') > 0).cast(T.IntegerType()))
     .join(clients_genders, on='ambs_cust_nbr'))
 
-select_cols = ['MONTH_REPORT'] + [f'CONTRACT_ACTIVE_DEBIT_CARD_{gender}' 
-        for gender in ['MALE', 'FEMALE', 'NOT_SPECIFIED']] 
+select_cols = ['MONTH_REPORT', *(f'CONTRACT_ACTIVE_DEBIT_CARD_{gender}' 
+        for gender in ['MALE', 'FEMALE', 'NOT_SPECIFIED'])] 
       
 r_2422 = (accounts
     .groupby('MONTH_REPORT')
@@ -148,8 +144,7 @@ r_2422.display()
 
 # COMMAND ----------
 
-sis_dates = filter(None, [get_name_date(f_ish.name) 
-    for f_ish in dbutils.fs.ls(f"{reports}/sispagos/processed/")])
+sis_dates = dir_dates(f"{abfss_slv}/{paths['reports']}/sispagos/processed/")
 
 pre_start = max(sis_dates) if any(sis_dates) else accounts_range['min_date']
 
@@ -192,17 +187,13 @@ sispagos.display()
 
 # COMMAND ----------
 
-r_2422.display()
-
-# COMMAND ----------
-
 pd_r2422 = r_2422.toPandas()
 
 for _, row in pd_r2422.iterrows():
     date_str = row['MONTH_REPORT'].strftime('%Y-%m-%d')
-    row_path = f"{reports}/r2422/r2422_{date_str}.csv" 
+    row_path = f"{paths['reports']}/r2422/r2422_{date_str}.csv" 
     print(f"escribiendo: {row_path}")
-    write_datalake(row, row_path, slv_container, overwrite=True)
+    write_pandas(row, row_path, slv_container, overwrite=True)
 
 # COMMAND ----------
 
@@ -210,12 +201,23 @@ pd_sispagos = sispagos.toPandas()
 
 for _, row in pd_sispagos.iterrows():
     date_str = row['Trimestre'].strftime('%Y-%m-%d')
-    row_path = f"{reports}/sispagos/sispagos_{date_str}.csv" 
+    row_path = f"{paths['reports']}/sispagos/sispagos_{date_str}.csv" 
     print(f"escribiendo: {row_path}")
-    write_datalake(row, row_path, slv_container, overwrite=True)
+    write_pandas(row, row_path, slv_container, overwrite=True)
 
 # COMMAND ----------
 
-a_dir = reports + '/r2422'
-print(a_dir)
-dirfiles_df(a_dir, spark)
+# MAGIC %md 
+# MAGIC # Revisión archivos
+
+# COMMAND ----------
+
+r2422_dir = f"{abfss_slv}/{paths['reports']}/r2422"
+print(r2422_dir)
+dirfiles_df(r2422_dir, spark)
+
+# COMMAND ----------
+
+sis_dir = f"{abfss_slv}/{paths['reports']}/sispagos"
+print(sis_dir)
+dirfiles_df(sis_dir, spark)

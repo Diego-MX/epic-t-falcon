@@ -1,15 +1,14 @@
-import numpy as np
-from pandas import DataFrame as pd_DF, Series as pd_S
-from pyspark.sql import functions as F, types as T, DataFrame as spk_DF
 import re
 from typing import Union
 from warnings import warn
 
+import numpy as np
+from pandas import DataFrame as pd_DF, Series as pd_S
+from pyspark.dbutils import DBUtils
+from pyspark.sql import functions as F, types as T, DataFrame as spk_DF, SparkSession
+
 from epic_py.delta import EpicDF, file_exists
 
-
-from pyspark.sql import SparkSession
-from pyspark.dbutils import DBUtils
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
@@ -64,22 +63,16 @@ def colsdf_2_select(b_df: pd_DF, base_col='value'):
         '2-typecols' : type_slct}
     return to_select
 
-    
 
 def colsdf_2_schema(b_df: pd_DF) -> T.StructType: 
     # NAUGHT_TYPE placeholder callable to keep other indices in place.  
-    
     naught_type = lambda x: None
     set_types = [naught_type, naught_type, 
         T.DoubleType, T.DateType, T.StringType, T.IntegerType]
-    
     the_fields = [T.StructField(name, set_types[a_row['c_type']](), True)
-        for name, a_row in b_df.iterrows() if a_row['c_type'] in [2, 3, 4, 5]]
-    
+        for name, a_row in b_df.iterrows() if a_row['c_type'] in [2, 3, 4, 5]]    
     the_schema = T.StructType(the_fields)
     return the_schema
-
-
 
 
 def join_with_suffix(a_df:EpicDF, b_df:EpicDF, on_cols, how, suffix): 
@@ -97,33 +90,15 @@ def join_with_suffix(a_df:EpicDF, b_df:EpicDF, on_cols, how, suffix):
     
 
 
-def write_datalake(a_df: Union[spk_DF, pd_DF, pd_S], 
-        a_path, container=None, overwrite=False, spark=None): 
-    warn("WRITE_DATALAKE is outdated.  Use EPICDF.SAVE_AS_FILE")
+def write_pandas(a_df: Union[spk_DF, pd_DF, pd_S], 
+        a_path, container=None, overwrite=False): 
+    if container is None: 
+        raise "Valid Container is required"
     
-    if isinstance(a_df, spk_DF):
-        dbutils = DBUtils(spark)
-        if file_exists(a_path): 
-            dbutils.fs.rm(a_path)
-        
-        pre_path = re.sub(r'\.csv$', '', a_path)
-        (a_df.coalesce(1).write
-            .format('csv')
-            .save(pre_path))
-        
-        path_000 = [ff.path for ff in dbutils.fs.ls(pre_path) 
-                if re.match(r'.*000\.csv$', ff.name)][0]
-        dbutils.fs.cp(path_000, a_path)
-        dbutils.fs.rm(pre_path, recurse=True)
+    the_blob = container.get_blob_client(a_path)
+    to_index = {pd_DF: False, pd_S:True}
+    
+    str_df = a_df.to_csv(index=to_index[type(a_df)], encoding='utf-8')
+    the_blob.upload_blob(str_df, encoding='utf-8', overwrite=overwrite)
 
-    elif isinstance(a_df, (pd_DF, pd_S)):
-        if container is None: 
-            raise "Valid Container is required"
-            
-        the_blob = container.get_blob_client(a_path)
-        to_index = {pd_DF: False, pd_S:True}
-        
-        str_df = a_df.to_csv(index=to_index[type(a_df)], encoding='utf-8')
-        the_blob.upload_blob(str_df, encoding='utf-8', overwrite=overwrite)
-    
 

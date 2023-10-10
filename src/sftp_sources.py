@@ -47,7 +47,7 @@ def read_delta_basic(spark, src_path, tgt_path=None) -> spk_DF:
     meta_cols = [('_metadata.file_name', 'file_name'), 
         ('_metadata.file_modification_time', 'file_modified')]
     
-    src_fs = path_type(src_path, spark)[1]
+    src_fs = path_type(src_path)
     
     if ((src_fs == 'Folder') 
             and (tgt_path is not None) 
@@ -58,17 +58,17 @@ def read_delta_basic(spark, src_path, tgt_path=None) -> spk_DF:
             .collect()[0][0])
         some_options = {
             'recursiveFileLookup': 'true', 
-            'header': 'false'
+            'header': 'false',
             'modifiedAfter': since_mod}
     elif src_fs == 'Folder':
         some_options = {
             'recursiveFileLookup': 'true', 
-            'header': 'false'
+            'header': 'false',
             'modifiedAfter': date(2020, 1, 1)}
     else: 
         some_options = {
             'recursiveFileLookup': 'false', 
-            'header': 'true'
+            'header': 'true',
             'modifiedAfter': date(2020, 1, 1)}
     mod_after = some_options.pop('modifiedAfter')
     basic = (EpicDF(spark.read.format('text')
