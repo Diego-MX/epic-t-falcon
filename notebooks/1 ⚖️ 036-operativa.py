@@ -22,11 +22,12 @@
 # pylint: disable=wrong-import-position,missing-module-docstring,wrong-import-order
 from importlib import reload
 from src import conciliation; reload(conciliation)      # pylint: disable=multiple-statements
+import config; reload(config)
 
 from collections import OrderedDict
 from datetime import datetime as dt, timedelta as delta
 from json import dumps
-from operator import add, itemgetter, methodcaller as ϱ
+from operator import add, itemgetter as ξ, methodcaller as ϱ
 from pytz import timezone as tz
 
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
@@ -62,7 +63,7 @@ to_reports = λ_address('gold', 'reports2')
 
 dumps2 = lambda xx: dumps(xx, default=str)
 tmp_parent = compose_left(
-    ϱ('split', '/'), itemgetter(slice(0, -1)),
+    ϱ('split', '/'), ξ(slice(0, -1)),
     partial2(add, ..., ['tmp',]),
     '/'.join)
 
@@ -72,10 +73,10 @@ w_date = dbutils.widgets.get('date')
 
 if w_date == 'yyyy-mm-dd': 
     now_mx = dt.now(tz('America/Mexico_City'))
-    r_date = now_mx.date() - delta(days=1) 
+    r_date = now_mx.date() - delta(days=1)
     s_date = r_date.strftime('%Y-%m-%d')
 else: 
-    r_date = dt.strptime(w_date, '%Y-%m-%d')
+    r_date = dt.strptime(w_date, '%Y-%m-%d').date()
     s_date = w_date
 
 # COMMAND ----------

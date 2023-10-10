@@ -75,7 +75,7 @@ if w_date == 'yyyy-mm-dd':
     s_date = r_date.strftime('%Y-%m-%d')
 else:
     s_date = w_date
-    r_date = dt.strptime(s_date, '%Y-%m-%d')
+    r_date = dt.strptime(s_date, '%Y-%m-%d').date()
 
 print(f"""
 SPEI-C4B : {at_banking}

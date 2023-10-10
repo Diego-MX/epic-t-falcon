@@ -1,4 +1,4 @@
-from operator import attrgetter as σ #ϱ
+from operator import attrgetter as σ
 from os import environ, getenv, remove
 from pathlib import Path
 import re
@@ -24,10 +24,10 @@ SETUP_2 = {
     'qas': {
         'service-principal': {
             'tenant_id'        : 'aad-tenant-id',
-            'subscription_id'  : 'sp-core-events-suscription',
-            'client_id'        : 'sp-core-events-client',
-            'client_secret'    : 'sp-core-events-secret'},
-        'databricks-scope' : 'eh-core-banking'},    # ops-conciliations
+            'subscription_id'  : 'sp-core-events-suscription',  # 'sp-ops-conciliations-subscription',   # 
+            'client_id'        : 'sp-core-events-client',       # 'sp-ops-conciliations-client', # 
+            'client_secret'    : 'sp-core-events-secret'},      # 'sp-ops-conciliations-secret'},# },
+        'databricks-scope' :    'eh-core-banking'},             # 'dbks-ops-conciliations'}, # ops-conciliations, 
     'stg': {
         'databricks-scope': 'ops-conciliations',
         'service-principal' : {
@@ -36,12 +36,12 @@ SETUP_2 = {
             'client_id'        : 'sp-ops-conciliations-client',
             'client_secret'    : 'sp-ops-conciliations-secret'}},
     'prd': {
-        'databricks-scope': 'ops-conciliations',
+        'databricks-scope': 'cx-collections', # 'ops-conciliations',
         'service-principal' : {
-            'tenant_id'        : 'aad-tenant-id',
-            'subscription_id'  : 'sp-ops-conciliations-subscription',
-            'client_id'        : 'sp-ops-conciliations-client',
-            'client_secret'    : 'sp-ops-conciliations-secret'} },
+            'tenant_id'        : 'aad-tenant-id',  
+            'subscription_id'  : 'sp-collections-subscription', # 'sp-ops-conciliations-subscription',
+            'client_id'        : 'sp-collections-client',       # 'sp-ops-conciliations-client',
+            'client_secret'    : 'sp-collections-secret'}},     # 'sp-ops-conciliations-secret'} },
     'drp': {}
 }
 
