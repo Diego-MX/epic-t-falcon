@@ -25,6 +25,7 @@
 
 # COMMAND ----------
 
+# pylint: disable=wrong-import-error
 from pathlib import Path
 from delta.tables import DeltaTable as Δ
 from pyspark.sql import functions as F, Window as W
@@ -39,7 +40,7 @@ from src import sftp_sources as sftp; reload(sftp)
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, 
     DATALAKE_PATHS as paths, 
-    t_agent, t_resources,
+    t_agent, t_resourcer,
     CORE_2, CORE_ENV)
 
 resources = RESOURCE_SETUP[ENV]

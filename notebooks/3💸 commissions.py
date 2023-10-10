@@ -61,6 +61,10 @@ COMSNS_FRAME = 300   # Max número de días para cobrar comisiones.
 COMSNS_APPLY = 100   # Max número de comisiones para mandar en un llamado. 
 PAGE_MAX     = 200   # Max número de registros (eg. PersonSet) para pedir de un llamado. 
 
+# pylint: disable=wrong-import-position
+# pylint: disable=wrong-import-order
+# pylint: disable=multiple-statements
+
 # COMMAND ----------
 
 from collections import OrderedDict
@@ -77,14 +81,13 @@ from importlib import reload
 import epic_py; reload(epic_py)
 import config ; reload(config)
 
-from epic_py.delta import EpicDF, when_plus
-from epic_py.core_banking import SAPSession
+from epic_py.delta import EpicDF
+from epic_py.partners.apis_core import SAPSession
 
-from src import tools
 
 from config import (ConfigEnviron, 
     ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths, 
-    t_agent, t_resources, t_core)
+    t_core) # t_agent, t_resourcer
 
 resources = RESOURCE_SETUP[ENV]
 app_environ = ConfigEnviron(ENV, SERVER, spark)

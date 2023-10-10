@@ -162,8 +162,6 @@ ldgr_prep = ldgr_src.start_data(spark)
 ldgr_data = ldgr_src.setup_data(ldgr_prep)
 ldgr_data.display()
 
-ldgr_data.filter('txn_valid').display()
-
 # COMMAND ----------
 
 # MAGIC %md
