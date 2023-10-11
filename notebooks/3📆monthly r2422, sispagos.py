@@ -62,7 +62,8 @@ def get_name_date(a_str):
 dir_dates = compose_left(dbutils.fs.ls, 
     map_z(σ('name')), 
     map_z(get_name_date), 
-    partial2(filter, None))
+    partial2(filter, None),
+    list)
 
 # COMMAND ----------
 
@@ -100,7 +101,7 @@ print(accounts_range)
 
 # COMMAND ----------
 
-r2422_dates = list(dir_dates(f"{abfss_slv}/{paths['reports']}/r2422/processed/"))
+r2422_dates = dir_dates(f"{abfss_slv}/{paths['reports']}/r2422/processed/")
 pre_start = max(r2422_dates) if any(r2422_dates) else accounts_range['min_date']
 
 r2422_start = next_whole_period(pre_start, 'month')    
