@@ -28,7 +28,8 @@
 
 # COMMAND ----------
 
-# MAGIC %run ./0_install_nb_reqs
+with open("../src/install_nb_reqs.py") as nb_reqs: 
+    exec(nb_reqs.read())
 
 # COMMAND ----------
 
@@ -82,7 +83,6 @@ to_unzip    = "/dbfs/FileStore/transformation-layer/tmp_unzipped"
 
 blob_container = ContainerClient(blob_path, 'bronze', app_env.credential) 
 
-print(abfss_read)
 read_df = dirfiles_df(abfss_read, spark)
 read_df
 
@@ -144,7 +144,6 @@ raw_files = (pd.concat([read_df, labels], axis=1)   # Ubicado en BRZ por error d
         in_blobs = lambda df: df['brz_name'].isin(blobs_df['rel_path'])))
 
 watch_tags = np.any(raw_files['tag_date'].isnull())
-print()
 raw_files.query("tag_1 == 'CUENTAS'").sort_values('tag_date', ascending=False)
 
 # COMMAND ----------

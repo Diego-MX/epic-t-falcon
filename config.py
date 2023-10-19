@@ -84,9 +84,9 @@ BLOB_PATHS = {
     #'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready", # Extraer y descomprimir
     #'reports'      : "ops/regulatory/transformation-layer", # R2422, SISPAGOS,
     'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.  
-    #'datasets'     : "ops/card-management/datasets",        # transformation-layer (raw -> CuSn)
+    'cms-data'     : "ops/card-management/datasets",        # transformation-layer (raw -> CuSn)
     #'withdrawals'  : "ops/account-management/withdrawals",  # todos los retiros
-    #'commissions'  : "ops/account-management/commissions",  # retiros de cajeros
+    'commissions'  : "ops/account-management/commissions",  # retiros de cajeros
     'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI. 
 }
 

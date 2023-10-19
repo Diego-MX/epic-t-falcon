@@ -4,11 +4,11 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -q -r ../reqs_dbks.txt
+# MAGIC %pip install -r ../reqs_dbks.txt
 
 # COMMAND ----------
 
-epicpy_ref = 'gh-1.5'  # gh-1.4 pylint: disable=invalid-name 
+epicpy_ref = 'gh-1.4'  # gh-1.4 pylint: disable=invalid-name 
 # pylint: disable=wrong-import-position,wrong-import-order
 # pylint: disable=no-name-in-module,unspecified-encoding,import-error
 
@@ -39,4 +39,4 @@ subprocess.check_call(['pip', 'install', url_call])
 import epic_py
 print(f"""EpicPy
 Referencia\t: {epicpy_ref}
-Version\t\t: {epic_py.__version__}""")
+Version TOML\t: {epic_py.__version__}""")
