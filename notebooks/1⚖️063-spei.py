@@ -15,7 +15,8 @@
 
 # COMMAND ----------
 
-# MAGIC %run ./0_install_nb_reqs
+with open("../src/install_nb_reqs.py") as nb_reqs: 
+    exec(nb_reqs.read())
 
 # COMMAND ----------
 

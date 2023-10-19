@@ -44,15 +44,8 @@
 
 # COMMAND ----------
 
-# MAGIC %md 
-# MAGIC ## 0. Ingredients
-# MAGIC Prepare libraries, functions and variables.  
-# MAGIC Some parameters, are to be set on the functional side.  
-# MAGIC ... 
-
-# COMMAND ----------
-
-# MAGIC %run ./0_install_nb_reqs
+with open("../src/install_nb_reqs.py") as nb_reqs: 
+    exec(nb_reqs.read())
 
 # COMMAND ----------
 
@@ -69,11 +62,16 @@ PAGE_MAX     = 200   # Max número de registros (eg. PersonSet) para pedir de un
 
 from collections import OrderedDict
 from datetime import datetime as dt, timedelta as delta
+from functools import reduce
+from itertools import chain
+from operator import methodcaller as ϱ, or_
+from warnings import warn
 
 from delta.tables import DeltaTable as Δ
 import pandas as pd
-from pyspark.sql import functions as F, SparkSession, types as T, Window as W
+from pyspark.sql import functions as F, SparkSession, types as T, utils, Window as W
 from pytz import timezone
+from toolz import pipe
 
 spark = SparkSession.builder.getOrCreate()
 
@@ -84,23 +82,18 @@ import config ; reload(config)
 from epic_py.delta import EpicDF
 from epic_py.partners.apis_core import SAPSession
 
+from config import t_agent, t_resourcer, t_core, BLOB_PATHS as paths
 
-from config import (ConfigEnviron, 
-    ENV, SERVER, RESOURCE_SETUP, DATALAKE_PATHS as paths, 
-    t_core) # t_agent, t_resourcer
+(datalake, lake_type) = (t_resourcer['storage'], 'gen2')
+permissions = t_agent.prep_dbks_permissions(datalake, lake_type)
+t_resourcer.set_dbks_permissions(permissions)
 
-resources = RESOURCE_SETUP[ENV]
-app_environ = ConfigEnviron(ENV, SERVER, spark)
-app_environ.sparktransfer_credential()
-
-core_starter = app_environ.prepare_coresession('qas-sap')
 core_session = SAPSession(t_core)
 
-slv_path       = paths['abfss'].format('silver', resources['storage'])
-at_datasets    = f"{slv_path}/{paths['datasets']}"  
+slv_path       = t_resourcer.get_resource_url('abfss', datalake, container='silver') 
+at_datasets    = f"{slv_path}/{paths['cms-data']}"  
 at_commissions = f"{slv_path}/{paths['commissions']}/delta"
 
-# Fiserv es el proveedor que maneja estos archivos:  txns, clientes. 
 atptx_loc = f"{at_datasets}/atpt/delta"
 
 
@@ -110,10 +103,10 @@ atptx_loc = f"{at_datasets}/atpt/delta"
 # MAGIC ## 1. Update Previous Commissions
 # MAGIC
 # MAGIC Estatus en comisiones:   
-# MAGIC `'0.0': '0.0'`    
-# MAGIC `'1'   : 'Creado'`     
-# MAGIC `'2'   : 'Procesado'`  
-# MAGIC `'3'   : 'No procesado'`  
+# MAGIC `'0.0' : '0.0'`    
+# MAGIC ` '1'  : 'Creado'`     
+# MAGIC ` '2'  : 'Procesado'`  
+# MAGIC ` '3'  : 'No procesado'`  
 
 # COMMAND ----------
 
@@ -173,7 +166,6 @@ print(f"There are {len(unproc_ids)} external IDs not processed.")
 # COMMAND ----------
 
 debugging = False
-
 if debugging: 
     for ii, id_row in enumerate(unproc_ids):
         print(ii, id_row.external_id)
@@ -184,19 +176,10 @@ if debugging:
             .verify_commissions(ExternalID=id_row.external_id))
         
         if api_comsns.shape[0] == 0: 
-            print(a_row.b_core_acct)
+            print(id_row.b_core_acct)
             continue
             
         update_commissions(api_comsns, at_commissions, sub_comsns)
-
-# COMMAND ----------
-
-print(f"There are {len(unproc_ids)} external IDs not processed.")
-(EpicDF(spark, at_commissions)
-    .groupBy('status_process', 'status_descr')
-    .agg_plus(summaries)
-    .orderBy('status_process')
-    .show())
 
 # COMMAND ----------
 
@@ -217,17 +200,17 @@ print(f"There are {len(unproc_ids)} external IDs not processed.")
 
 # COMMAND ----------
 
-# Preparamos las transacciones que corresponden a los retiros (withdrawals/wdraw).  
-
-# Alguna información complementaria: 
-
-# b_wdraw_acquirer_code:  {110072: Banorte, ...}
-
 # atpt_mt_category_code: {
 #    5045, 5311, 5411, 5661, 7994
 #    6010: cash, 6011: atm, 
 #    (596[02456789], 7995): high-risk-merchant}
 
+# b_wdraw_acquirer_code:  {110072: Banorte, ...}
+
+purchase_to_savings = (lambda a_col: 
+    F.concat_ws('-', F.substring(a_col, 1, 11), 
+                     F.substring(a_col, 12, 3), 
+                     F.lit('MX')))
 
 w_txn_ref =    (W.partitionBy('atpt_mt_ref_nbr')
     .orderBy(F.col('atpt_mt_eff_date').desc()))
@@ -236,43 +219,40 @@ w_month_acct = (W.partitionBy('atpt_acct', 'b_wdraw_month')
 w_inhouse    = (W.partitionBy('atpt_acct', 'b_wdraw_month', 'b_wdraw_is_inhouse')
     .orderBy(F.col('atpt_mt_eff_date').desc()))
 
-purchase_to_savings = (lambda a_col: 
-    F.concat_ws('-', F.substring(a_col, 1, 11), 
-                     F.substring(a_col, 12, 3), 
-                     F.lit('MX')))
-        
-wdraw_status = (F.when(~F.col('b_wdraw_is_commissionable'), -1)
-                 .when(F.col('atpt_mt_posting_date').isNull(), -2)
-                 .otherwise(0))
-
-# Core Banking es SAP. 
-wdraw_withcols = OrderedDict({
+wdraw_withcols = [{
     'b_core_acct'        : purchase_to_savings('atpt_mt_purchase_order_nbr'), 
-    'b_wdraw_acq_code'   : F.substring(F.col('atpt_mt_interchg_ref'), 2, 6), 
+    'b_wdraw_acq_code'   : F.substring(F.col('atpt_mt_interchg_ref'), 2, 6),
+    'b_wdraw_rk_txns'    : F.row_number().over(w_txn_ref),
+    'b_wdraw_month'      : F.date_trunc('month', F.col('atpt_mt_eff_date')).cast(T.DateType())
+    }, {   
+    'b_wdraw_rk_acct'    : F.row_number().over(w_month_acct),
     'b_wdraw_is_inhouse' : F.col('b_wdraw_acq_code') == F.lit('11072'),
-    'b_wdraw_month'      : F.date_trunc('month', F.col('atpt_mt_eff_date')).cast(T.DateType()), 
-    'b_wdraw_rk_txns'    : F.row_number().over(w_txn_ref), 
-    'b_wdraw_rk_acct'    : F.row_number().over(w_month_acct), 
+    }, {
     'b_wdraw_rk_inhouse' : F.when(F.col('b_wdraw_is_inhouse'), 
-                                  F.row_number().over(w_inhouse)).otherwise(-1), 
-    'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') | (F.col('b_wdraw_rk_inhouse') > 3),  
-    'b_wdraw_commission_status': wdraw_status, 
-    })
-
+        F.row_number().over(w_inhouse)).otherwise(-1)
+    }, { 
+    'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') | (F.col('b_wdraw_rk_inhouse') > 3)
+    }, {  
+    'b_wdraw_commission_status':  (F.when(~F.col('b_wdraw_is_commissionable'), -1)
+        .when(F.col('atpt_mt_posting_date').isNull(), -2)
+        .otherwise(0))}] 
+    
 wdraw_allcols = ['atpt_acct', 'atpt_mt_eff_date', 'atpt_mt_category_code',  
     'atpt_mt_card_nbr', 'atpt_mt_desc', 'atpt_mt_amount', 'atpt_mt_purchase_order_nbr', 
     'atpt_mt_posting_date', 'atpt_mt_ref_nbr', 'atpt_mt_interchg_ref'
-    ] + list(wdraw_withcols.keys())
+    ] + list(chain(*wdraw_withcols))
 
-wdraw_txns_0 = (EpicDF(spark, atptx_loc)
-    .filter(F.col('atpt_mt_category_code').isin([6010, 6011])))
-
-# Aquí asumimos que el REF_NUM es único.  Pero necesitamos validarlo. 
-wdraw_txns = (wdraw_txns_0.with_column_plus(wdraw_withcols)
-    .select(wdraw_allcols)
-    .filter(F.col('b_wdraw_rk_txns') == 1))   
+wdraw_txns = (EpicDF(spark, atptx_loc)
+    .filter(F.col('atpt_mt_category_code').isin([6010, 6011]))
+    .with_column_plus(wdraw_withcols))
 
 wdraw_txns.display()
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC `ATPT`: es la clave utiliza Fiserv -el sistema de tarjetas CMS- para sus archivos de txns;  equivalente al `Transaction Set` de SAP. 
+# MAGIC
 
 # COMMAND ----------
 
@@ -313,30 +293,32 @@ commissions.display()
 # Inicialmente necesita 
 #     'atpt_mt_ref_nbr': 'transaction_id'; 
 #     'b_core_acct': 'account_id'. 
-
 # Y genera:   'process_date', 'external_id'; 
 #     'type_code', 'currency', 'payment_note', 'posting_date', 'value_date'
 #     'status' 
+# Y se le agregan: VERFY_COLS
 
-# Finalmente la verificación agregaría estos campos. 
-verification_cols = ['status_process', 'status_descr', 'log_msg', 'amount']  
-# POS_FEE is also created afterwards, but we create it artificia0lly in parallel. 
+verfy_cols = ['status_process', 'status_descr', 'log_msg']
 
 process_df = (core_session
-    .process_commissions_atpt(spark, commissions, 
-           cmsn_key='atm', out='dataframe', **{'how-many': 50})
-    .assign(**{col: None for col in verification_cols}))
+    .process_commissions_atpt(commissions, 
+           cmsn_key='atm', out='dataframe', **{'how-many': 50}))
+process_cols = process_df.columns.append(pd.Index(verfy_cols))
+process_spk = pipe(process_df, 
+        ϱ('reindex', columns=process_cols, fill_value=None))
 
 if not process_df.empty: 
-    process_spk = spark.createDataFrame(process_df)
-
+    process_cols = process_df.columns.append(pd.Index(verfy_cols))
+    process_spk = pipe(process_df, 
+        ϱ('reindex', columns=process_cols), 
+        spark.createDataFrame)
     (process_spk.write
-         .mode('append')
-         .save(at_commissions))
-
+        .mode('append')
+        .save(at_commissions))
     process_spk.display()
 else: 
     print(f"Commissions DF is empty.")
+
 
 # COMMAND ----------
 
@@ -346,24 +328,22 @@ else:
 # COMMAND ----------
 
 # Iniciar la tabla. 
-debug = False
-if debug: 
-    spk_comisiones.write.save(at_commissions)
+# debug = False
+# if debug: 
+#     comisiones.write.save(at_commissions)
 
 # COMMAND ----------
 
 # Borrar la tabla.
-debug = False
-if debug: 
-    dbutils.fs.rm(at_commissions, True)
+# debug = False
+# if debug: 
+#     dbutils.fs.rm(at_commissions, True)
 
 # COMMAND ----------
 
 recalculate = False
 if recalculate: 
-
     on_accounts = wdraw_txns.select('b_core_acct').distinct().collect()
-
     for a_row in on_accounts: 
         if a_row.b_core_acct == '000--MX': 
             continue 

@@ -15,7 +15,8 @@
 
 # COMMAND ----------
 
-# MAGIC %run ./0_install_nb_reqs
+with open("../src/install_nb_reqs.py") as nb_reqs: 
+    exec(nb_reqs.read())
 
 # COMMAND ----------
 
@@ -156,20 +157,23 @@ print(f"From ({sis_start}) to ({sis_end})")
 
 # COMMAND ----------
 
-select_cols = ['Trimestre', 'Seccion', 'Moneda', 
+select_cols = [# 'Trimestre', 
+    'Año', 'Mes', 'Seccion', 'Moneda', 
     'Tipo_Cuenta', 'Tipo_Persona', 
     'Numero_de_Cuentas', 'Saldo_Promedio']
 
 group_cols = {
-    'agg' : {
-        'numero_de_cuentas': F.sum('ambs_nbr_unblked_cards'), 
-        'suma_balances'    : F.sum('ambs_curr_bal')}, 
     'mutate': {
+        'Año'           : F.year('Trimestre'), 
+        'Mes'           : F.month('Trimestre'), 
         'Saldo_Promedio': F.round(F.col('suma_balances')/F.col('numero_de_cuentas'), 2), 
         'Seccion'       : F.lit('2.1'), 
         'Moneda'        : F.lit('MXN'), 
         'Tipo_Cuenta'   : F.lit('1723'), 
-        'Tipo_Persona'  : F.lit('')}}
+        'Tipo_Persona'  : F.lit('')}, 
+    'agg' : {
+        'numero_de_cuentas': F.sum('ambs_nbr_unblked_cards'), 
+        'suma_balances'    : F.sum('ambs_curr_bal')}}
 
 sispagos = (EpicDF(spark, accounts_loc)
     .filter(F.col('file_date').between(sis_start, sis_end))
@@ -201,7 +205,7 @@ for _, row in pd_r2422.iterrows():
 pd_sispagos = sispagos.toPandas()
 
 for _, row in pd_sispagos.iterrows():
-    date_str = row['Trimestre'].strftime('%Y-%m-%d')
+    date_str = "{Año:04}-{Mes:02}-01".format(**row.to_dict())
     row_path = f"{paths['reports']}/sispagos/sispagos_{date_str}.csv" 
     print(f"escribiendo: {row_path}")
     write_pandas(row, row_path, slv_container, overwrite=True)
@@ -220,5 +224,4 @@ dirfiles_df(r2422_dir, spark)
 # COMMAND ----------
 
 sis_dir = f"{abfss_slv}/{paths['reports']}/sispagos"
-print(sis_dir)
 dirfiles_df(sis_dir, spark)
