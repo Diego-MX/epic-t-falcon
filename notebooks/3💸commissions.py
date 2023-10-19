@@ -302,23 +302,19 @@ verfy_cols = ['status_process', 'status_descr', 'log_msg']
 
 process_df = (core_session
     .process_commissions_atpt(commissions, 
-           cmsn_key='atm', out='dataframe', **{'how-many': 50}))
-process_cols = process_df.columns.append(pd.Index(verfy_cols))
-process_spk = pipe(process_df, 
-        ϱ('reindex', columns=process_cols, fill_value=None))
+           cmsn_key='atm', out='dataframe', **{'how-many': 50})
+    .assign(**dict.fromkeys(verfy_cols)))
+
+# COMMAND ----------
 
 if not process_df.empty: 
-    process_cols = process_df.columns.append(pd.Index(verfy_cols))
-    process_spk = pipe(process_df, 
-        ϱ('reindex', columns=process_cols), 
-        spark.createDataFrame)
+    process_spk = spark.createDataFrame(process_df)
     (process_spk.write
         .mode('append')
         .save(at_commissions))
     process_spk.display()
 else: 
     print(f"Commissions DF is empty.")
-
 
 # COMMAND ----------
 
