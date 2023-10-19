@@ -9,7 +9,7 @@
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
         "**/__pycache__": true,
-        "**/.vscode": true
+        "**/.vscode": false
     },
     "jupyter.interactiveWindow.cellMarker.codeRegex": "^# COMMAND ----------|^# Databricks notebook source|^(#\\s*%%|#\\s*\\<codecell\\>|#\\s*In\\[\\d*?\\]|#\\s*In\\[ \\])",
     "jupyter.interactiveWindow.cellMarker.default": "# COMMAND ----------",
