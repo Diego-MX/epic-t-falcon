@@ -15,12 +15,16 @@
 
 # COMMAND ----------
 
-with open("../src/install_nb_reqs.py") as nb_reqs: 
-    exec(nb_reqs.read())
+from src.setup import pkg_epicpy
+pkg_epicpy.install_it()
 
 # COMMAND ----------
 
-# pylint: disable=wrong-import-position,missing-module-docstring,wrong-import-order
+# pylint: disable=wrong-import-position,wrong-import-order
+# pylint: disable=missing-module-docstring
+
+# COMMAND ----------
+
 from importlib import reload
 from src import conciliation; reload(conciliation)      # pylint: disable=multiple-statements
 import config; reload(config)
@@ -28,7 +32,7 @@ import config; reload(config)
 from collections import OrderedDict
 from datetime import datetime as dt, timedelta as delta
 from json import dumps
-from operator import add, itemgetter as ξ, methodcaller as ϱ
+from operator import add, itemgetter as ɣ, methodcaller as ϱ
 from pytz import timezone as tz
 
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
@@ -64,7 +68,7 @@ to_reports = λ_address('gold', 'reports2')
 
 dumps2 = lambda xx: dumps(xx, default=str)
 tmp_parent = compose_left(
-    ϱ('split', '/'), ξ(slice(0, -1)),
+    ϱ('split', '/'), ɣ(slice(0, -1)),
     partial2(add, ..., ['tmp',]),
     '/'.join)
 
