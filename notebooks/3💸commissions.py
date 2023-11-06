@@ -44,8 +44,8 @@
 
 # COMMAND ----------
 
-with open("../src/install_nb_reqs.py") as nb_reqs: 
-    exec(nb_reqs.read())
+from src.setup.pkg_epicpy import install_it
+install_it()
 
 # COMMAND ----------
 

@@ -154,7 +154,6 @@ def download_blob(abs_path, at_local):
     with open(at_local, 'wb') as _f: 
         _f.write(the_blob.download_blob().readall())
     return
-        
 
 def extract_file(f_name, f_src, f_tgt): 
     with ZipFile(f"{f_src}", 'r') as _z: 
