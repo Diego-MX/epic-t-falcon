@@ -1,4 +1,4 @@
-
+"""Main models are SOURCER, CONCILIATOR"""
 from operator import methodcaller as ϱ
 from pyspark.sql import functions as F, types as T
 from toolz import compose_left

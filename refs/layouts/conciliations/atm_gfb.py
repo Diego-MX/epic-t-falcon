@@ -1,8 +1,8 @@
 # pylint: disable=missing-module-docstring
 from operator import methodcaller as ϱ
-
 from pyspark.sql import functions as F
-from toolz import thread_first as thread 
+from epic_py.tools import thread
+
 
 gfb_atm_specs = {
     'name': 'subledger',
@@ -18,7 +18,7 @@ gfb_atm_specs = {
         'LOC_CURR' : 'str' , 'IGL_ACCOUNT': 'long'},
     'mutate' : {
         'K5SAMLOC'    : thread(F.col('K5SAMLOC'),
-            (F.regexp_replace, r"(\-?)([0-9\.])(\-?)", "$3$1$2"),
+            (F.regexp_replace, ..., r"(\-?)([0-9\.])(\-?)", "$3$1$2"),
             ϱ('cast', 'double')),
         'txn_valid'   : F.col('C11PRDCTR').isNotNull()
                       & F.col('C11PRDCTR').startswith('EPC')
