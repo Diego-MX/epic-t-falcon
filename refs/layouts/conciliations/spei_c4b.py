@@ -1,5 +1,4 @@
 # pylint: disable=missing-module-docstring
-from collections import OrderedDict
 from pyspark.sql import functions as F
 
 
@@ -9,7 +8,7 @@ c4b_spei_specs = {
     'f-regex': r'SPEI_FILE_(?P<key1>\w+)_(?P<date>\d{8})_?(?P<key2>\w*)\.txt',
     'options': dict(mode='PERMISIVE', sep='|', header=False,
             dateFormat='d-M-y', timestampFormat='d/M/y H:m:s'),
-    'schema': OrderedDict({
+    'schema': {
         'account_c4b': 'str', 'txn_type_code': 'str', 'txn_type': 'str', 'txn_postdate': 'ts',
         'amount_local': 'dbl', # 'AMOUNT_CENTS': 'str',
         # Vienen en formato europeo así que lo separamos y ajustamos.
@@ -23,7 +22,7 @@ c4b_spei_specs = {
         'cancel_document': 'str', 'pymt_notes': 'str', 'end_to_end': 'str', 'ref_number': 'str',
         'txn_status_code': 'int', 'txn_status': 'str', 'acct_holder_name': 'str',
         'acct_holder_tax_id': 'str', 'cntr_party_tax_id': 'str', 'fee_amount': 'dbl',
-        'fee_currency': 'str', 'vat_amount': 'dbl', 'vat_currency': 'str'}),
+        'fee_currency': 'str', 'vat_amount': 'dbl', 'vat_currency': 'str'},
     'mutate': {
         'txn_postdate' : F.col('txn_postdate').cast('date'),
         'value_date'   : F.col('value_date').cast('date'),

@@ -1,16 +1,14 @@
 # pylint: disable=missing-module-docstring
-from collections import OrderedDict
-
 from pyspark.sql import functions as F
 
-c4b_specs = {
+c4b_atm_specs = {
     'name': 'cloud-banking',
     'alias': 'c4b',
     'f-regex': r'CONCILIA(?P<key>\w+)(?P<date>\d{8})\.txt',
     'options': dict(mode='PERMISIVE', 
         sep='|', header=True, nullValue='null',
         dateFormat='d.M.y', timestampFormat='d.M.y H:m:s'),
-    'schema' : OrderedDict({
+    'schema' : {    # Order is important
         'ACCOUNTID': 'str', 'TRANSACTIONTYPENAME': 'str', 'ACCOUNTHOLDERID': 'long',
         'POSTINGDATE':'date', 'AMOUNT': 'dbl', 'CURRENCY': 'str', 'VALUEDATE': 'date',
         'STATUSNAME': 'str', 'COUNTERPARTYACCOUNTHOLDER': 'str', 'COUNTERPARTYBANKACCOUNT': 'str',
@@ -26,7 +24,7 @@ c4b_specs = {
         'CANCELLATIONDOCUMENTINDICATOR': 'str', 'CANCELLEDENTRYREFERENCE': 'str',
         'CANCELLATIONENTRYREFERENCE': 'str', 'PAYMENTNOTES': 'str', 'CREATIONDATETIME': 'ts',
         'CHANGEDATETIME': 'ts', 'RELEASEDATETIME': 'ts', 'CHANGEUSER': 'str', 'RELEASEUSER': 'str',
-        'COUNTER': 'int'}),
+        'COUNTER': 'int'},
     'mutate': {
         'txn_valid'   : F.lit(True),  # Filtrar
         'num_cuenta'  : F.split(F.col('ACCOUNTID'), '-')[0], # JOIN
@@ -35,7 +33,6 @@ c4b_specs = {
         'monto_txn'   : F.col('AMOUNT'),  # Suma y compara
         'tipo_txn'    : F.col('TYPENAME'),  # Referencia, asociada a CLAVE_TXN.
         },  # TIPO_PROD se obtiene del JOIN.  
-
     'match': {
         'where': [F.col('txn_valid')],
         'by'   : ['num_cuenta', 'clave_txn', 'moneda', 'tipo_prod'],

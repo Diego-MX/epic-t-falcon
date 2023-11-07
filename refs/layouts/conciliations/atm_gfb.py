@@ -1,26 +1,24 @@
 # pylint: disable=missing-module-docstring
-from collections import OrderedDict
 from operator import methodcaller as ϱ
 
 from pyspark.sql import functions as F
-from toolz import pipe
-from epic_py.tools import partial2
+from toolz import thread_first as thread 
 
-fpsl_specs = {
+gfb_atm_specs = {
     'name': 'subledger',
     'alias': 'fpsl',
     'f-regex': r'CONCILIA(?P<key>\w+)(?P<date>\d{8})\.txt',
     'options': dict(sep= '|', header= True, nullValue= 'null',
         dateFormat= 'd.M.y', timestampFormat= 'd.M.y H:m:s',
         mode='PERMISIVE'),
-    'schema' : OrderedDict({
+    'schema' : {
         'C55POSTD' : 'date', 'C55YEAR'    : 'int',
         'C35TRXTYP': 'str' , 'C55CONTID'  : 'str',
         'C11PRDCTR': 'str' , 'K5SAMLOC'   : 'str',  
-        'LOC_CURR' : 'str' , 'IGL_ACCOUNT': 'long'}),
+        'LOC_CURR' : 'str' , 'IGL_ACCOUNT': 'long'},
     'mutate' : {
-        'K5SAMLOC'    : pipe(F.col('K5SAMLOC'),
-            partial2(F.regexp_replace, ...,  r"(\-?)([0-9\.])(\-?)", "$3$1$2"),
+        'K5SAMLOC'    : thread(F.col('K5SAMLOC'),
+            (F.regexp_replace, r"(\-?)([0-9\.])(\-?)", "$3$1$2"),
             ϱ('cast', 'double')),
         'txn_valid'   : F.col('C11PRDCTR').isNotNull()
                       & F.col('C11PRDCTR').startswith('EPC')
