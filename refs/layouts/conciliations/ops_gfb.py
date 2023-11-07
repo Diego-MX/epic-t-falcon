@@ -17,10 +17,10 @@ fpsl_specs = {
         'C11PRDCTR': 'str' , 'K5SAMLOC'   : 'str',  
         'LOC_CURR' : 'str' , 'IGL_ACCOUNT': 'long'},
     'mutate' : {
-        'K5SAMLOC'    : thread(F.col('K5SAMLOC'),
+        'K5SAMLOC' : thread(F.col('K5SAMLOC'),
             (F.regexp_replace, r"(\-?)([0-9\.])(\-?)", "$3$1$2"),
             ϱ('cast', 'double')),
-        'txn_valid'   : F.col('C11PRDCTR').isNotNull()
+        'txn_valid' : F.col('C11PRDCTR').isNotNull()
                       & F.col('C11PRDCTR').startswith('EPC')
                       &~F.col('C35TRXTYP').startswith('S'),
         'num_cuenta'  : F.substring(F.col('C55CONTID'), 1, 11),
@@ -34,5 +34,5 @@ fpsl_specs = {
         'by'   : ['num_cuenta', 'clave_txn', 'moneda', 'tipo_prod'],
         'agg'  : {
             'fpsl_num_txns': F.count('*'),
-            'fpsl_monto'   : F.round(F.sum('monto_txn'), 2)}}
-}
+            'fpsl_monto'   : F.round(F.sum('monto_txn'), 2)
+} } }
