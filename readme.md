@@ -12,7 +12,7 @@ Entonces utiliza los siguientes recursos:
   Las credenciales se guardan en el _scope_:  
   `aad-tenant-id`, `sp-ops-conciliations-subscription`, `sp-ops-conciliations-client`, `sp-ops-conciliations-secret`.  
 
-* Acceder al _metastore_ `sqlserver-lakehylia-data-<env>`.  
+* Acceder al _metastore_ `sqlserver-lakehylia-(data|adm)-<env>`.  
   Crear un usuario y guardar credenciales en el _scope_:  
   `ops-conciliations-metastore-user`, `ops-conciliatons-metastore-pass`.  
 
