@@ -25,11 +25,10 @@ pkg_epicpy.install_it()
 
 # COMMAND ----------
 
-from importlib import reload
-from src import conciliation; reload(conciliation)      # pylint: disable=multiple-statements
-import config; reload(config)
+# from importlib import reload
+# from src import conciliation; reload(conciliation)      # pylint: disable=multiple-statements
+# import config; reload(config)
 
-from collections import OrderedDict
 from datetime import datetime as dt, timedelta as delta
 from json import dumps
 from operator import add, itemgetter as ɣ, methodcaller as ϱ
@@ -37,7 +36,8 @@ from pytz import timezone as tz
 
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
 from pyspark.sql import functions as F, Row, SparkSession
-from toolz import compose_left
+from toolz import compose_left, pipe
+from toolz.curried import map as map_z
 
 from epic_py.tools import dirfiles_df, partial2
 from src.conciliation import Sourcer, Conciliator, files_matcher, process_files    # pylint: disable=ungrouped-imports 
@@ -66,7 +66,7 @@ t_resourcer.set_dbks_permissions(t_permissions)
 at_conciliations = λ_address('raw', 'conciliations')
 to_reports = λ_address('gold', 'reports2')
 
-dumps2 = lambda xx: dumps(xx, default=str)
+dumps2 = partial2(dumps, default=str)
 tmp_parent = compose_left(
     ϱ('split', '/'), ɣ(slice(0, -1)),
     partial2(add, ..., ['tmp',]),
@@ -127,17 +127,17 @@ c4b_files.query('matcher > 1')     # pylint: disable=expression-not-assigned
 # COMMAND ----------
 
 def name_item(names): 
-    λ_name = lambda k_v: dict(zip(names, k_v))
-    return λ_name 
+    """name_item((nm1, nm2))(it1, it2) = {nm1: it1, nm2: it2}"""
+    return compose_left(partial2(zip, names), dict)
 
-prod_name = lambda k_v: Row(tipo_prod=k_v[0], ACCOUNTPRODUCTID=k_v[1])
 prod_dict = {
     'EPC_OP_MAX': 'EPC_OP_MAX', 
     'EPC_TA_MAX': 'EPC_TA_MA1',
     'EPC_LA_PER': 'EPC_LA_PE1'}
 
-prod_df = spark.createDataFrame([name_item(('tipo_prod', 'ACCOUNTPRODUCTID'))(p_item) 
-        for p_item in prod_dict.items()])
+prod_df = pipe(prod_dict.items(), 
+    map_z(name_item(('tipo_prod', 'ACCOUNTPRODUCTID'))), 
+    spark.createDataFrame)
 
 c4b_src = Sourcer(c4b_path, **c_layouts.c4b_specs)
 c4b_prep = c4b_src.start_data(spark)
@@ -177,14 +177,14 @@ ldgr_data.display()
 
 dir_036  = f"{to_reports}/operational"
 
-check_txns = OrderedDict({
+check_txns = {
     'valida': (F.col('fpsl_num_txns') == F.col('c4b_num_txns')) 
             & (F.col('fpsl_monto') + F.col('c4b_monto') == 0), 
     'opuesta':(F.col('fpsl_num_txns') == F.col('c4b_num_txns')) 
             & (F.col('fpsl_monto') == F.col('c4b_monto')), 
     'c4b':    (F.col( 'c4b_num_txns') == 0) | (F.col( 'c4b_num_txns').isNull()), 
     'fpsl':   (F.col( 'c4b_num_txns') == 0) | (F.col( 'c4b_num_txns').isNull()), 
-    'indeterminada': None})
+    'indeterminada': None}
 
 # Extras: no es muy formal, pero es muy práctico. 
 fpsl_cuenta = (ldgr_data
