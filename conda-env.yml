@@ -1,0 +1,23 @@
+
+
+channels:
+  - defaults
+  - conda-forge
+
+dependencies:
+  - python=3.10
+  - ipykernel=8.12.0
+  - azure-identity=1.12.0
+  - azure-keyvault-secrets=4.6.0
+  - azure-storage-blob=12.9.0
+  - authlib=1.0.1
+  - xmltodict=0.12.0
+  - pip
+  - pip:
+    - delta-spark==1.2.1 
+  - pyspark=3.2.3
+  - httpx=0.23.0
+  - pytz=2022.7
+  - pandas=1.5.3
+  - 
+

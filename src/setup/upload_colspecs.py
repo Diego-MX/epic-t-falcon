@@ -1,10 +1,10 @@
+from delta import DeltaTable as Δ
 import numpy as np
 import pandas as pd
-from epic_py.utilities import read_excel_table
+from epic_py.tools import read_excel_table
 
 
-
-def fiserv_data(a_df: pd.DataFrame): 
+def fiserv_data(a_df: pd.DataFrame) -> pd.DataFrame: 
     # Field Name, Format, Technical Mapping
     mod_cols = {
         'Field Name': lambda df: df['Field Name'].str.strip(), 
@@ -14,25 +14,33 @@ def fiserv_data(a_df: pd.DataFrame):
         'aux_fill'  : lambda df: df['Field Name'].str.match(r'.*filler', case=False), 
         'aux_date'  : lambda df: df['Technical Mapping'].str.find('YYYYMMDD') > -1, 
         'aux_sign'  : lambda df: df['Technical Mapping'].str.find('+ or -'  ) > -1, 
-        'name_1'    : lambda df: df['Technical Mapping']
+        'name_1'    :(lambda df: df['Technical Mapping']
             .str.strip().str.split(' ').str[0].str.lower()
             .str.replace(r'\((\d+)\)', r'_\1', regex=True)
-            .str.replace('-', '_'), 
+            .str.replace('-', '_')), 
         'name'      : lambda df: np.where(~df['aux_sign'], df['name_1'], 
             df['name_1'].shift(-1) + '_sgn'),
         'chk_sign'  : lambda df: np.where(~df['aux_sign'], True, 
             df['Field Name'].str.replace(' - sign', '') == df['Field Name'].shift(-1)), 
-        'chk_len'   : lambda df: (df['From'] + df['Length'] == df['From'].shift(-1)) 
-            | (np.arange(len(df)) == len(df)-1), 
-        'chk_name'  : lambda df: ~df['name'].duplicated() 
-            | df['aux_sign'] | df['aux_fill']}
+        'chk_len'   :(lambda df: (df['From'] + df['Length'] == df['From'].shift(-1)) 
+            | (np.arange(len(df)) == len(df)-1)), 
+        'chk_name'  :(lambda df: ~df['name'].duplicated() 
+            | df['aux_sign'] | df['aux_fill'])}
 
     b_df = (a_df
         .rename(lambda a_str: a_str.strip(), axis=1)
         .assign(**mod_cols)
         .astype({'fmt_len': int}))
     return b_df 
-    
+
+
+
+def print_df(a_df, width=180): 
+    options = ['display.max_rows', None, 
+               'display.max_columns', None, 
+               'display.width', width]
+    with pd.option_context(*options):
+        print(a_df)
 
 
 if __name__ == '__main__': 
@@ -48,24 +56,29 @@ if __name__ == '__main__':
     specs_file = "refs/layouts/Data Extracts.xlsx.lnk"
 
     sheets_tables = [
-        ('DATPTX01', 'atpt'),  # , ('DAMNAC01', 'damnac')      
+        ('DATPTX01', 'atpt'),  # , ('DAMNAC01', 'damnac')    
+        ('DATPTX02', 'atpt2'),   
         ('DAMBS101', 'dambs'), 
         ('DAMBS201', 'dambs2'), 
         ('DAMBSC01', 'dambsc'),
-        ('DAMNA001', 'damna')] 
+        ('DAMNA001', 'damna' ), 
+        ('DAMNAC01', 'damnac')] 
 
     table_types = ['detail', 'header', 'trailer']
 
-    the_cols = ['name', 'From', 'Length', 'Format', 'Field Name', 'Technical Mapping', 
+    the_cols = ['name', 'From', 'Length', 'Format', 'Field Name', 
+            'Technical Mapping', 'Enc_Fix', 
             'fmt_type', 'fmt_len', 'aux_date', 'aux_sign', 'aux_fill']
+
 
     now_str = dt.now().strftime("%Y-%m-%d_%H:%M")
     
     for a_sht, a_tbl in sheets_tables: 
-        for suffix in table_types: 
+        for suffix in table_types:
+            print(f"Sheet-Table-Suffix: {a_sht}-{a_tbl}-{suffix}.") 
 
             file_name = f"refs/layouts/cms/{a_tbl}_{suffix}.feather"
-            b_name1 =  f"{specs_brz}/{a_tbl}_{suffix}_latest.feather"
+            b_name1  = f"{specs_brz}/{a_tbl}_{suffix}_latest.feather"
             b_name2 = f"{specs_brz}/{a_tbl}_{suffix}_{now_str}.feather"
 
             pre_table = read_excel_table(specs_file, a_sht, f"{a_tbl}_{suffix}")

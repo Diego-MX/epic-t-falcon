@@ -1,13 +1,5 @@
-pandas
-pydantic
-
-# Utilities
-azure-identity
-azure-keyvault-secrets
-azure-storage-blob
 
 chardet
-
-
-
-
+httpx
+pyyaml
+xmltodict

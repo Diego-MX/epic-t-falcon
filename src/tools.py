@@ -1,11 +1,17 @@
-from functools import reduce
+import re
+from typing import Union
+from warnings import warn
+
 import numpy as np
-import pandas as pd
 from pandas import DataFrame as pd_DF, Series as pd_S
 from pyspark.dbutils import DBUtils
-from pyspark.sql import (functions as F, types as T, 
-    Column as Col, DataFrame as spk_DF)
-from typing import List, Dict, Union
+from pyspark.sql import functions as F, types as T, DataFrame as spk_DF, SparkSession
+
+from epic_py.delta import EpicDF, file_exists
+
+
+spark = SparkSession.builder.getOrCreate()
+dbutils = DBUtils(spark)
 
 
 def colsdf_prepare(a_df: pd_DF) -> pd_DF: 
@@ -31,8 +37,7 @@ def colsdf_2_select(b_df: pd_DF, base_col='value'):
     # F_NAUGHT as callable placeholder in list. 
     naught  = lambda name: T.NullType()
     sgn_dbl = lambda name: (F.col(name).cast(T.DoubleType()) 
-            *F.concat(F.col(f'{name}_sgn'), F.lit('1')).cast(T.DoubleType())
-            ).alias(name)
+        * F.concat(F.col(f'{name}_sgn'), F.lit('1')).cast(T.DoubleType())).alias(name)
     f_date  = lambda name: F.to_date(F.col(name), 'yyyyMMdd').alias(name)
     f_str   = lambda name: F.col(name).alias(name)
     f_int   = lambda name: F.col(name).cast(T.IntegerType()).alias(name)
@@ -58,76 +63,42 @@ def colsdf_2_select(b_df: pd_DF, base_col='value'):
         '2-typecols' : type_slct}
     return to_select
 
-    
 
 def colsdf_2_schema(b_df: pd_DF) -> T.StructType: 
     # NAUGHT_TYPE placeholder callable to keep other indices in place.  
-    
     naught_type = lambda x: None
     set_types = [naught_type, naught_type, 
         T.DoubleType, T.DateType, T.StringType, T.IntegerType]
-    
     the_fields = [T.StructField(name, set_types[a_row['c_type']](), True)
-        for name, a_row in b_df.iterrows() if a_row['c_type'] in [2, 3, 4, 5]]
-    
+        for name, a_row in b_df.iterrows() if a_row['c_type'] in [2, 3, 4, 5]]    
     the_schema = T.StructType(the_fields)
     return the_schema
 
 
-
-def with_columns(a_df: spk_DF, cols_dict: dict) -> spk_DF: 
-    f_with = lambda x_df, col_item: x_df.withColumn(col_item[0], col_item[1])
-    
-    non_cols = {name for name, a_col in cols_dict.items() 
-            if not isinstance(a_col, Col)}
-    if non_cols: 
-        raise Exception(f"Non Columns: {non_cols}")
-        
-    b_df = reduce(f_with, cols_dict.items(), a_df)
-    return b_df
-
-
-
-def join_with_suffix(a_df, b_df, on_cols, how, suffix): 
+def join_with_suffix(a_df:EpicDF, b_df:EpicDF, on_cols, how, suffix): 
     non_on = (set(a_df.columns)
         .intersection(b_df.columns)
         .difference(on_cols))
     a_rnms = {a_col+suffix[0]: a_col for a_col in non_on}
     b_rnms = {b_col+suffix[1]: b_col for b_col in non_on}
     
-    a_rnmd = with_columns(a_df, a_rnms)
-    b_rnmd = with_columns(b_df, b_rnms)
+    a_rnmd = a_df.with_column_plus(a_rnms)
+    b_rnmd = b_df.with_column_plus(b_rnms)
     
     joiner = a_rnmd.join(b_rnmd, on=on_cols, how=how)
     return joiner
     
 
 
-def write_datalake(a_df: Union[spk_DF, pd_DF, pd_S], 
-        a_path, container=None, overwrite=False, spark=None): 
+def write_pandas(a_df: Union[spk_DF, pd_DF, pd_S], 
+        a_path, container=None, overwrite=False): 
+    if container is None: 
+        raise "Valid Container is required"
     
-    if isinstance(a_df, spk_DF):
-        dbutils = DBUtils(spark)
-        if file_exists(a_path): 
-            dbutils.fs.rm(a_path)
-        
-        pre_path = re.sub(r'\.csv$', '', a_path)
-        a_df.coalesce(1).write.format('csv').save(pre_path)
-        
-        path_000 = [ff.path for ff in dbutils.fs.ls(pre_path) 
-                if re.match(r'.*000\.csv$', ff.name)][0]
-        dbutils.fs.cp(path_000, a_path)
-        dbutils.fs.rm(pre_path, recurse=True)
+    the_blob = container.get_blob_client(a_path)
+    to_index = {pd_DF: False, pd_S:True}
+    
+    str_df = a_df.to_csv(index=to_index[type(a_df)], encoding='utf-8')
+    the_blob.upload_blob(str_df, encoding='utf-8', overwrite=overwrite)
 
-    elif isinstance(a_df, (pd_DF, series.Series)):
-        if container is None: 
-            raise "Valid Container is required"
-            
-        the_blob = container.get_blob_client(a_path)
-        to_index = {pd_DF: False, series.Series: True}
-        
-        str_df = a_df.to_csv(index=to_index[type(a_df)], encoding='utf-8')
-        the_blob.upload_blob(str_df, encoding='utf-8', overwrite=overwrite)
-    
 
-    

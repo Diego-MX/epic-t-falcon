@@ -1,0 +1,57 @@
+Collecting azure-identity
+  Using cached azure_identity-1.14.1-py3-none-any.whl (161 kB)
+Collecting azure-keyvault-secrets
+  Using cached azure_keyvault_secrets-4.7.0-py3-none-any.whl (348 kB)
+Collecting azure-storage-blob
+  Using cached azure_storage_blob-12.18.3-py3-none-any.whl (392 kB)
+Requirement already satisfied: chardet in /databricks/python3/lib/python3.10/site-packages (from -r ../reqs_dbks.txt (line 5)) (4.0.0)
+Collecting httpx
+  Using cached httpx-0.25.0-py3-none-any.whl (75 kB)
+Requirement already satisfied: pandas in /databricks/python3/lib/python3.10/site-packages (from -r ../reqs_dbks.txt (line 7)) (1.4.4)
+Requirement already satisfied: pydantic in /databricks/python3/lib/python3.10/site-packages (from -r ../reqs_dbks.txt (line 8)) (1.10.6)
+Collecting python-dotenv
+  Using cached python_dotenv-1.0.0-py3-none-any.whl (19 kB)
+Collecting pyyaml
+  Using cached PyYAML-6.0.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (705 kB)
+Collecting toolz
+  Using cached toolz-0.12.0-py3-none-any.whl (55 kB)
+Collecting xmltodict
+  Using cached xmltodict-0.13.0-py2.py3-none-any.whl (10.0 kB)
+Collecting msal-extensions<2.0.0,>=0.3.0
+  Using cached msal_extensions-1.0.0-py2.py3-none-any.whl (19 kB)
+Collecting azure-core<2.0.0,>=1.11.0
+  Using cached azure_core-1.29.4-py3-none-any.whl (192 kB)
+Requirement already satisfied: cryptography>=2.5 in /databricks/python3/lib/python3.10/site-packages (from azure-identity->-r ../reqs_dbks.txt (line 2)) (37.0.1)
+Collecting msal<2.0.0,>=1.20.0
+  Using cached msal-1.24.1-py2.py3-none-any.whl (95 kB)
+Collecting isodate>=0.6.1
+  Using cached isodate-0.6.1-py2.py3-none-any.whl (41 kB)
+Collecting azure-common~=1.1
+  Using cached azure_common-1.1.28-py2.py3-none-any.whl (14 kB)
+Requirement already satisfied: typing-extensions>=4.0.1 in /local_disk0/.ephemeral_nfs/envs/pythonEnv-b9f042c0-0e6a-492d-a56c-b4f8d8fe29a9/lib/python3.10/site-packages (from azure-keyvault-secrets->-r ../reqs_dbks.txt (line 3)) (4.6.1)
+Collecting httpcore<0.19.0,>=0.18.0
+  Using cached httpcore-0.18.0-py3-none-any.whl (76 kB)
+Collecting sniffio
+  Using cached sniffio-1.3.0-py3-none-any.whl (10 kB)
+Requirement already satisfied: idna in /databricks/python3/lib/python3.10/site-packages (from httpx->-r ../reqs_dbks.txt (line 6)) (3.3)
+Requirement already satisfied: certifi in /databricks/python3/lib/python3.10/site-packages (from httpx->-r ../reqs_dbks.txt (line 6)) (2022.9.14)
+Requirement already satisfied: pytz>=2020.1 in /databricks/python3/lib/python3.10/site-packages (from pandas->-r ../reqs_dbks.txt (line 7)) (2022.1)
+Requirement already satisfied: python-dateutil>=2.8.1 in /databricks/python3/lib/python3.10/site-packages (from pandas->-r ../reqs_dbks.txt (line 7)) (2.8.2)
+Requirement already satisfied: numpy>=1.21.0 in /databricks/python3/lib/python3.10/site-packages (from pandas->-r ../reqs_dbks.txt (line 7)) (1.21.5)
+Requirement already satisfied: requests>=2.18.4 in /databricks/python3/lib/python3.10/site-packages (from azure-core<2.0.0,>=1.11.0->azure-identity->-r ../reqs_dbks.txt (line 2)) (2.28.1)
+Requirement already satisfied: six>=1.11.0 in /usr/lib/python3/dist-packages (from azure-core<2.0.0,>=1.11.0->azure-identity->-r ../reqs_dbks.txt (line 2)) (1.16.0)
+Requirement already satisfied: cffi>=1.12 in /databricks/python3/lib/python3.10/site-packages (from cryptography>=2.5->azure-identity->-r ../reqs_dbks.txt (line 2)) (1.15.1)
+Collecting anyio<5.0,>=3.0
+  Using cached anyio-4.0.0-py3-none-any.whl (83 kB)
+Collecting h11<0.15,>=0.13
+  Using cached h11-0.14.0-py3-none-any.whl (58 kB)
+Requirement already satisfied: PyJWT[crypto]<3,>=1.0.0 in /usr/lib/python3/dist-packages (from msal<2.0.0,>=1.20.0->azure-identity->-r ../reqs_dbks.txt (line 2)) (2.3.0)
+Collecting portalocker<3,>=1.0
+  Using cached portalocker-2.8.2-py3-none-any.whl (17 kB)
+Collecting exceptiongroup>=1.0.2
+  Using cached exceptiongroup-1.1.3-py3-none-any.whl (14 kB)
+Requirement already satisfied: pycparser in /databricks/python3/lib/python3.10/site-packages (from cffi>=1.12->cryptography>=2.5->azure-identity->-r ../reqs_dbks.txt (line 2)) (2.21)
+Requirement already satisfied: charset-normalizer<3,>=2 in /databricks/python3/lib/python3.10/site-packages (from requests>=2.18.4->azure-core<2.0.0,>=1.11.0->azure-identity->-r ../reqs_dbks.txt (line 2)) (2.0.4)
+Requirement already satisfied: urllib3<1.27,>=1.21.1 in /databricks/python3/lib/python3.10/site-packages (from requests>=2.18.4->azure-core<2.0.0,>=1.11.0->azure-identity->-r ../reqs_dbks.txt (line 2)) (1.26.11)
+Installing collected packages: azure-common, xmltodict, toolz, sniffio, pyyaml, python-dotenv, portalocker, isodate, h11, exceptiongroup, azure-core, anyio, httpcore, azure-storage-blob, azure-keyvault-secrets, msal, httpx, msal-extensions, azure-identity
+Successfully installed anyio-4.0.0 azure-common-1.1.28 azure-core-1.29.4 azure-identity-1.14.1 azure-keyvault-secrets-4.7.0 azure-storage-blob-12.18.3 exceptiongroup-1.1.3 h11-0.14.0 httpcore-0.18.0 httpx-0.25.0 isodate-0.6.1 msal-1.24.1 msal-extensions-1.0.0 portalocker-2.8.2 python-dotenv-1.0.0 pyyaml-6.0.1 sniffio-1.3.0 toolz-0.12.0 xmltodict-0.13.0
