@@ -6,11 +6,16 @@ Este repo (`transformation-layer`) es parte del análogo `ops-conciliations` de 
 que utilizamos el nombre del segundo por ser más significativo.  
 
 Entonces utiliza los siguientes recursos: 
-* Crear `dbks-ops-conciliations` un _scope_ en Databricks.   
+* Crear `ops-conciliations` un _scope_ en Databricks.  
 
 * Crear `ops-conciliations` un _service principal_ para el proyecto.  
   Las credenciales se guardan en el _scope_:  
   `aad-tenant-id`, `sp-ops-conciliations-subscription`, `sp-ops-conciliations-client`, `sp-ops-conciliations-secret`.  
+
+* Crear `kv-ops-conciliations` un _keyvault_ para los secretos del proyecto.  
+  Aunque se pueden leer iguales el _scope_ y el _keyvault_, la intensión de separarlos es separar la funcionalidad de cada uno.  
+  El _scope_ representa la persona/aplicación que ejecuta el código desde Databricks.  
+  El _keyvault_ resguarda los secretos del proyecto.  
 
 * Acceder al contenedor del _datalake_ `stlakehylia<env>`.  
   Asignar acceso al principado en las carpetas:  
@@ -18,7 +23,7 @@ Entonces utiliza los siguientes recursos:
   cada una en (algunos de) los contenedores `raw` 🥩, `bronze` 🥉, `silver` 🥈, `gold` 🥇.  
 
 * Acceder al _metastore_ `sqlserver-lakehylia-data-<env>`.  
-  Crear un usuario y guardar credenciales en el _scope_:  
+  Crear un usuario y guardar credenciales en el _keyvault_:  
   `ops-conciliations-metastore-user`, `ops-conciliatons-metastore-pass`.  
 
 * (Reservamos este espacio para el listado de tablas que se crean/utilizan en el _metastore_.)  
@@ -46,7 +51,7 @@ El esquema general es:
   Las variables que se deben configurar externamente se enlistan además en este `readme.md`; 
   y también incluimos algunas variables propias del proyecto.  
   Se puede importar en otros _notebooks_ y _scripts_ de Python tal cual:  
-  ```  
+  ```{python} 
   from config import DATALAKE_SETUP  
   ```  
   Si se utiliza código en otro lenguaje, favor de incluir en los requerimientos. 

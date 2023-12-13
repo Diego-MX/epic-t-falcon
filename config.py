@@ -2,7 +2,6 @@ from operator import attrgetter as σ
 from os import environ, getenv, remove
 from pathlib import Path
 import re
-from warnings import warn
 
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
@@ -15,8 +14,7 @@ from epic_py.tools import partial2
 
 load_dotenv('.env', override=True)
 
-# pylint: disable=missing-function-docstring
-# pylint: disable=missing-class-docstring
+# pylint: disable=line-too-long
 
 
 SETUP_2 = {
@@ -24,36 +22,40 @@ SETUP_2 = {
     'qas': {
         'service-principal': {
             'tenant_id'        : 'aad-tenant-id',
-            'subscription_id'  : 'sp-core-events-suscription',  # 'sp-ops-conciliations-subscription',   # 
-            'client_id'        : 'sp-core-events-client',       # 'sp-ops-conciliations-client', # 
-            'client_secret'    : 'sp-core-events-secret'},      # 'sp-ops-conciliations-secret'},# },
-        'databricks-scope' :    'eh-core-banking'},             # 'dbks-ops-conciliations'}, # ops-conciliations, 
+            'subscription_id'  : 'sp-ops-conciliations-subscription',   # sp-core-events-suscription
+            'client_id'        : 'sp-ops-conciliations-client',        # sp-core-events-client
+            'client_secret'    : 'sp-ops-conciliations-secret'},       # sp-core-events-secret
+        'databricks-scope' : 'dbks-ops-conciliations'},       # dbks-ops-conciliations
     'stg': {
-        'databricks-scope': 'ops-conciliations',
+        'databricks-scope': 'dbks-ops-conciliations',
         'service-principal' : {
             'tenant_id'        : 'aad-tenant-id',
             'subscription_id'  : 'sp-ops-conciliations-subscription',
             'client_id'        : 'sp-ops-conciliations-client',
             'client_secret'    : 'sp-ops-conciliations-secret'}},
     'prd': {
-        'databricks-scope': 'cx-collections', # 'ops-conciliations',
+        'databricks-scope': 'dbks-ops-conciliations',  # dbks-ops-conciliations
         'service-principal' : {
             'tenant_id'        : 'aad-tenant-id',  
-            'subscription_id'  : 'sp-collections-subscription', # 'sp-ops-conciliations-subscription',
-            'client_id'        : 'sp-collections-client',       # 'sp-ops-conciliations-client',
-            'client_secret'    : 'sp-collections-secret'}},     # 'sp-ops-conciliations-secret'} },
+            'subscription_id'  : 'sp-ops-conciliations-subscription',  # sp-collections-subscription
+            'client_id'        : 'sp-ops-conciliations-client',        # sp-collections-client
+            'client_secret'    : 'sp-ops-conciliations-secret'}},      # sp-collections-secret
     'drp': {}
 }
 
 RESOURCES_2 = {
     'qas': {
         'storage' : 'stlakehyliaqas',
-        'keyvault': 'kv-cx-data-qas'},
-    'stg': {},
+        'keyvault' : 'kv-opsConcil-data-qas', # kv-cx-data-qas
+        'metastore': ('sqlserver-lakehylia-data-qas', 'lakehylia_metastore_qas')},
+    'stg': {        
+        'storage' : 'stlakehyliastg',
+        'keyvault' : 'kv-opsConcil-adm-stg',
+        'metastore': ('sqlserver-lakehylia-adm-stg', 'lakehylia_metastore_stg')},
     'prd': {
         'storage' : 'stlakehyliaprd',
-        'keyvault': 'kv-cx-data-prd'
-    },
+        'keyvault': 'kv-opsConcil-data-prd',
+        'metastore': ('sqlserver-lakehylia-data-prd', 'lakehylia_metastore_prd')},
     'drp': {}
 }
 
