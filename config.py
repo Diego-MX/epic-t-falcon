@@ -413,4 +413,3 @@ t_agent = EpicIdentity.create(SERVER, config=SETUP_2[ENV])
 t_resourcer = t_agent.get_resourcer(RESOURCES_2[ENV], check_all=False)
 s_secret = t_resourcer.get_vault_secretter()
 t_core = t_agent.prep_sap_connect(CORE_2[CORE_ENV], s_secret)
-
