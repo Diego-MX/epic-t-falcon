@@ -45,7 +45,8 @@
 # COMMAND ----------
 
 from src.setup.pkg_epicpy import install_it
-install_it()
+install_it('dev-diego', '../reqs_dbks.txt', '../user_databricks.yml', False, True)
+# epic_ref, reqs, user_file, typing, verbose
 
 # COMMAND ----------
 
@@ -80,7 +81,7 @@ import epic_py; reload(epic_py)
 import config ; reload(config)
 
 from epic_py.delta import EpicDF
-from epic_py.partners.apis_core import SAPSession
+from epic_py.partners.core import SAPSession
 
 from config import t_agent, t_resourcer, t_core, BLOB_PATHS as paths
 
@@ -90,8 +91,8 @@ t_resourcer.set_dbks_permissions(permissions)
 
 core_session = SAPSession(t_core)
 
-slv_path       = t_resourcer.get_resource_url('abfss', datalake, container='silver') 
-at_datasets    = f"{slv_path}/{paths['cms-data']}"  
+slv_path = t_resourcer.get_resource_url('abfss', datalake, container='silver') 
+at_datasets = f"{slv_path}/{paths['cms-data']}"  
 at_commissions = f"{slv_path}/{paths['commissions']}/delta"
 
 atptx_loc = f"{at_datasets}/atpt/delta"
@@ -266,11 +267,19 @@ wdraw_txns.display()
 # Obtener las comisiones cobrables.  
 now_mx = dt.now(tz=timezone('America/Mexico_City'))
 today_date = now_mx.date()
-since_date = today_date - delta(days=COMSNS_FRAME)
+
+# since_date = today_date - delta(days=COMSNS_FRAME)
+since_date = dt(2023, 11, 15).date()
 
 pre_commissions = (spark.read
     .load(at_commissions)
     .withColumnRenamed('transaction_id', 'atpt_mt_ref_nbr'))
+
+friendly_cols = ['atpt_acct', 'atpt_mt_eff_date', 'atpt_mt_posting_date', 
+    'atpt_mt_ref_nbr', 'atpt_mt_desc', 'atpt_mt_card_nbr', 'atpt_mt_interchg_ref',
+    'b_wdraw_is_commissionable', 'b_wdraw_commission_status', 'b_wdraw_rk_txns', 
+    'b_core_acct', 'b_wdraw_acq_code', 'b_wdraw_month', 'b_wdraw_rk_acct', 
+    'b_wdraw_is_inhouse', 'b_wdraw_rk_inhouse']
 
 commissions = (wdraw_txns
     .filter_plus(*[
@@ -278,9 +287,18 @@ commissions = (wdraw_txns
         F.col('b_wdraw_commission_status') == 0, 
         F.col('b_wdraw_rk_txns') == 1, 
         F.col('atpt_mt_posting_date') >= since_date])
-    .join(pre_commissions, how='anti', on='atpt_mt_ref_nbr'))
-
+    .select(friendly_cols)
+    # .join(pre_commissions, how='anti', on='atpt_mt_ref_nbr')
+    )
 commissions.display()
+
+
+# COMMAND ----------
+
+(pre_commissions
+    .join(commissions, how='semi', on='atpt_mt_ref_nbr')
+    .display())
+
 
 # COMMAND ----------
 
@@ -303,7 +321,8 @@ verfy_cols = ['status_process', 'status_descr', 'log_msg']
 process_df = (core_session
     .process_commissions_atpt(commissions, 
            cmsn_key='atm', out='dataframe', **{'how-many': 50})
-    .assign(**dict.fromkeys(verfy_cols)))
+    .assign(**dict.fromkeys(verfy_cols))
+    )
 
 # COMMAND ----------
 

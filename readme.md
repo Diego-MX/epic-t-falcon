@@ -19,15 +19,22 @@ Entonces utiliza los siguientes recursos:
 
 * Acceder al contenedor del _datalake_ `stlakehylia<env>`.  
   Asignar acceso al principado en las carpetas:  
-  - `ops/{account-management,card-management,core-banking,fraude,regulatory}`
+  - `ops/{account-management,card-management,core-banking,fraude,regulatory,transactions}`
   cada una en (algunos de) los contenedores `raw` 🥩, `bronze` 🥉, `silver` 🥈, `gold` 🥇.  
 
 * Acceder al _metastore_ `sqlserver-lakehylia-data-<env>`.  
   Crear un usuario y guardar credenciales en el _keyvault_:  
   `ops-conciliations-metastore-user`, `ops-conciliatons-metastore-pass`.  
 
-* (Reservamos este espacio para el listado de tablas que se crean/utilizan en el _metastore_.)  
+* También se requieren permisos para las APIs de SAP.  
+  En el servidor -o _cluster_- se lee la variable `CORE_ENV` para identificar el acceso al ambiente de SAP.  
+  A su vez se requieren las siguientes llaves en el _keyvault_: 
+  - `core-api-key` con el `client-id`, 
+  - `core-api-secret` con el `client-secret`, 
+  - `core-api-user` que tiene el usuario de SAP, 
+  - `core-api-password` que tiene la contraseña correspondiente. 
 
+* (Reservamos este espacio para el listado de tablas que se crean/utilizan en el _metastore_.)  
 
 `Nota:` El link de [Confluence][runbook] es este.  
 
@@ -63,7 +70,4 @@ El esquema general es:
 
 
 
-
 [runbook]: https://bineo.atlassian.net/wiki/spaces/~6282a2fbd9ddcc006e9c3438/pages/1725595654/Conciliaciones+-+runbook
-
-

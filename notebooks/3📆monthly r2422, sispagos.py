@@ -27,7 +27,7 @@ import re
 
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
 from pyspark.sql import functions as F, SparkSession, types as T
-from toolz import compose_left, pipe
+from toolz import compose_left
 from toolz.curried import map as map_z
 
 spark = SparkSession.builder.getOrCreate()

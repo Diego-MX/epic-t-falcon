@@ -25,11 +25,11 @@ pkg_epicpy.install_it()
 
 # COMMAND ----------
 
-from importlib import reload
-from src import conciliation; reload(conciliation)      # pylint: disable=multiple-statements
-import config; reload(config)
+# from importlib import reload
+# from src import conciliation; reload(conciliation)      # pylint: disable=multiple-statements
+# import config; reload(config)
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from datetime import datetime as dt, timedelta as delta
 from json import dumps
 from operator import add, itemgetter as ɣ, methodcaller as ϱ
@@ -37,7 +37,8 @@ from pytz import timezone as tz
 
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
 from pyspark.sql import functions as F, Row, SparkSession
-from toolz import compose_left
+from toolz import compose_left, thread
+from toolz.curried import map as map_z
 
 from epic_py.tools import dirfiles_df, partial2
 from src.conciliation import Sourcer, Conciliator, files_matcher, process_files    # pylint: disable=ungrouped-imports 
@@ -126,18 +127,16 @@ c4b_files.query('matcher > 1')     # pylint: disable=expression-not-assigned
 
 # COMMAND ----------
 
-def name_item(names): 
-    λ_name = lambda k_v: dict(zip(names, k_v))
-    return λ_name 
+prod_translate = namedtuple('Product', 
+    ('tipo_prod', 'ACCOUNTPRODUCTID'))
+prod_rename = (
+    ('EPC_OP_MAX', 'EPC_OP_MAX'), 
+    ('EPC_TA_MAX', 'EPC_TA_MA1'),
+    ('EPC_LA_PER', 'EPC_LA_PE1'))
 
-prod_name = lambda k_v: Row(tipo_prod=k_v[0], ACCOUNTPRODUCTID=k_v[1])
-prod_dict = {
-    'EPC_OP_MAX': 'EPC_OP_MAX', 
-    'EPC_TA_MAX': 'EPC_TA_MA1',
-    'EPC_LA_PER': 'EPC_LA_PE1'}
-
-prod_df = spark.createDataFrame([name_item(('tipo_prod', 'ACCOUNTPRODUCTID'))(p_item) 
-        for p_item in prod_dict.items()])
+prod_df = thread(prod_rename, 
+    map_z(prod_translate._make), ϱ('as_dict'), 
+    spark.createDataFrame)
 
 c4b_src = Sourcer(c4b_path, **c_layouts.c4b_specs)
 c4b_prep = c4b_src.start_data(spark)
@@ -153,7 +152,7 @@ c4b_data.display()
 
 # COMMAND ----------
 
-src_1   = 'subledger'    # pylint: disable=invalid-name 
+src_1 = 'subledger'    # pylint: disable=invalid-name 
 
 files_0 = dirfiles_df(f"{at_conciliations}/{src_1}", spark)
 files_1 = process_files(files_0, src_1)
@@ -177,14 +176,14 @@ ldgr_data.display()
 
 dir_036  = f"{to_reports}/operational"
 
-check_txns = OrderedDict({
+check_txns = {
     'valida': (F.col('fpsl_num_txns') == F.col('c4b_num_txns')) 
             & (F.col('fpsl_monto') + F.col('c4b_monto') == 0), 
     'opuesta':(F.col('fpsl_num_txns') == F.col('c4b_num_txns')) 
             & (F.col('fpsl_monto') == F.col('c4b_monto')), 
     'c4b':    (F.col( 'c4b_num_txns') == 0) | (F.col( 'c4b_num_txns').isNull()), 
     'fpsl':   (F.col( 'c4b_num_txns') == 0) | (F.col( 'c4b_num_txns').isNull()), 
-    'indeterminada': None})
+    'indeterminada': None}
 
 # Extras: no es muy formal, pero es muy práctico. 
 fpsl_cuenta = (ldgr_data
@@ -201,8 +200,7 @@ c4b_036    = report_036.filter_checks(base_036, ['c4b',  'indeterminada'],
     join_alias='cloud-banking')
 
 base_adj = (fpsl_cuenta
-    .join(base_036, how='right', 
-        on=['num_cuenta', 'clave_txn', 'tipo_prod']))
+    .join(base_036, how='right', on=['num_cuenta', 'clave_txn', 'tipo_prod']))
 
 report_saver = (lambda a_df, path: 
     a_df.save_as_file(path, tmp_parent(path), header=True))
