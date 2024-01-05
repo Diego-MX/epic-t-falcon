@@ -1,0 +1,56 @@
+{
+    "error": {
+        "code": "ZL29_MSG_AM_FEEMASS/001",
+        "message": {
+            "lang": "es",
+            "value":"Property \'AccountID\': Bank Account 03017120826-222-MX does not exist - Line 20"},
+        "innererror": {
+            "application": {
+                "component_id": "",
+                "service_namespace": "/SAP/",
+                "service_id": "zl29_am_feemass_b0_srv",
+                "service_version": "0001"
+            },
+            "transactionid": "F781A949417E0340E00659794482A450",
+            "timestamp": "20240105171548.9041330",
+            "Error_Resolution": {
+                "SAP_Transaction": "For backend administrators: use ADT feed reader \\"SAP Gateway Error Log\\" or run transaction /IWFND/ERROR_LOG on SAP Gateway hub system and search for entries with the timestamp above for more details",
+                "SAP_Note": "See SAP Note 1797736 for error analysis (https://service.sap.com/sap/support/notes/1797736)"
+            },
+            "errordetails": [
+                {
+                    "code": "ZL29_MSG_AM_FEEMASS/001",
+                    "message":"Property \'AccountID\': Bank Account 03017120826-222-MX does not exist - Line 17",
+                    "propertyref": "",
+                    "severity": "error",
+                    "transition": false,
+                    "target": ""
+                },
+                {
+                    "code": "ZL29_MSG_AM_FEEMASS/001",
+                    "message":"Property \'AccountID\': Bank Account 03017120826-222-MX does not exist - Line 18",
+                    "propertyref": "",
+                    "severity": "error",
+                    "transition": false,
+                    "target": ""
+                },
+                {
+                    "code": "ZL29_MSG_AM_FEEMASS/001",
+                    "message":"Property \'AccountID\': Bank Account 03017120826-222-MX does not exist - Line 19",
+                    "propertyref": "",
+                    "severity": "error",
+                    "transition": false,
+                    "target": ""
+                },
+                {
+                    "code": "ZL29_MSG_AM_FEEMASS/001",
+                    "message":"Property \'AccountID\': Bank Account 03017120826-222-MX does not exist - Line 20",
+                    "propertyref": "",
+                    "severity": "error",
+                    "transition": false,
+                    "target": ""
+                }
+            ]
+        }
+    }
+}
