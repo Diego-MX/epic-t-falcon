@@ -15,8 +15,9 @@
 
 # COMMAND ----------
 
-with open("../src/install_nb_reqs.py") as nb_reqs: 
-    exec(nb_reqs.read())
+from src.setup.pkg_epicpy import install_it
+install_it('dev-diego', '../reqs_dbks.txt', '../user_databricks.yml', False, True)
+# epic_ref, reqs, user_file, typing, verbose  #
 
 # COMMAND ----------
 

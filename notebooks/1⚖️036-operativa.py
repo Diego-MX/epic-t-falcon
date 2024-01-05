@@ -1,6 +1,14 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC ## Introducción
+# MAGIC La conciliación operativa consiste en comparar las transacciones de:  
+# MAGIC - El _core_ bancario SAP.  
+# MAGIC - El libro contable también de SAP, pero en otro subsistema.  
+# MAGIC
+# MAGIC Genera archivos para verificar que las dos sean iguales, o que las diferencias sean controladas, o que las diferencias estén identificadas.  
+# MAGIC
+# MAGIC
+# MAGIC
 # MAGIC El objetivo de este notebook es correr los scripts para ejecutar las conciliaciones. 
 # MAGIC El código se divide en las siguientes partes:  
 # MAGIC &nbsp; 0. Preparar librerías, variables, funciones, etc.  
@@ -16,7 +24,8 @@
 # COMMAND ----------
 
 from src.setup import pkg_epicpy
-pkg_epicpy.install_it()
+pkg_epicpy.install_it('dev-diego', '../user_databricks.yml')
+# 'gh-1.4', '../user_databricks.yml', '4.7.1'
 
 # COMMAND ----------
 
@@ -56,6 +65,8 @@ dbutils.widgets.combobox('fpsl', 'FZE07',
     ['FZE01', 'FZE02', 'FZE03', 'FZE04', 'FZE05', 'FZE06', 'FZE07', 'FZE08', 'F1106'])
 
 # COMMAND ----------
+
+# T se refiere al repo (transformation layer). 
 
 t_storage = t_resourcer['storage']
 t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')

@@ -22,7 +22,7 @@ SETUP_2 = {
     'qas': {
         'service-principal': {
             'tenant_id'        : 'aad-tenant-id',
-            'subscription_id'  : 'sp-ops-conciliations-subscription',   # sp-core-events-suscription
+            'subscription_id'  : 'sp-ops-conciliations-subscription',  # sp-core-events-suscription
             'client_id'        : 'sp-ops-conciliations-client',        # sp-core-events-client
             'client_secret'    : 'sp-ops-conciliations-secret'},       # sp-core-events-secret
         'databricks-scope' : 'dbks-ops-conciliations'},       # dbks-ops-conciliations
@@ -48,7 +48,7 @@ RESOURCES_2 = {
         'storage' : 'stlakehyliaqas',
         'keyvault' : 'kv-opsConcil-data-qas', # kv-cx-data-qas
         'metastore': ('sqlserver-lakehylia-data-qas', 'lakehylia_metastore_qas')},
-    'stg': {        
+    'stg': {
         'storage' : 'stlakehyliastg',
         'keyvault' : 'kv-opsConcil-adm-stg',
         'metastore': ('sqlserver-lakehylia-adm-stg', 'lakehylia_metastore_stg')},
@@ -404,12 +404,14 @@ class ConfigEnviron():
             'get-secret': get_secret}
         return sessioner
 
+# Esto lo uso en todos mis repos.  
 
 ENV = environ.get('ENV_TYPE')
-SERVER = environ.get('SERVER_TYPE')
-CORE_ENV = environ.get('CORE_ENV')
+SERVER = environ.get('SERVER_TYPE')  # DBKS. 
+CORE_ENV = environ.get('CORE_ENV')   # STG-SAP
 
 t_agent = EpicIdentity.create(SERVER, config=SETUP_2[ENV])
 t_resourcer = t_agent.get_resourcer(RESOURCES_2[ENV], check_all=False)
+
 s_secret = t_resourcer.get_vault_secretter()
 t_core = t_agent.prep_sap_connect(CORE_2[CORE_ENV], s_secret)

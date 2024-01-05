@@ -3,13 +3,13 @@
 # MAGIC # Introducción
 # MAGIC
 # MAGIC Este _notebook_ es para ejecutarse como _job_ de manejo de comisiones (de retiros).  
-# MAGIC Potencialmente podrá gestionar retiros en general, u otras comisiones.  
+# MAGIC Potencialmente gestionaría retiros en general, u otras comisiones.  
 # MAGIC Consta de los siguientes secciones:  
 # MAGIC &nbsp; 0. Leer las transacciones de ATPT de acuerdo con el sistema de tarjetas Fiserv.  
 # MAGIC 1. Identificar las txns correspondientes a retiros de cajero, y los estatus de comisiones.  
 # MAGIC 2. Comparar con las comisiones existentes 
 # MAGIC 3. Aplicar las tarifas correspondientes.  
-# MAGIC 4. Actualizar la tabla de comisiones correspondiente.  
+# MAGIC 4. Actualizar la tabla de comisiones.  
 
 # COMMAND ----------
 
@@ -44,9 +44,9 @@
 
 # COMMAND ----------
 
-from src.setup.pkg_epicpy import install_it
-install_it('dev-diego', '../reqs_dbks.txt', '../user_databricks.yml', False, True)
-# epic_ref, reqs, user_file, typing, verbose
+from src.setup import dependencies as deps 
+deps.from_reqsfile('../reqs_dbks.txt')
+deps.gh_epicpy('meetme-1', '../user_databricks.yml', typing=False, verbose=True)
 
 # COMMAND ----------
 
@@ -54,6 +54,9 @@ install_it('dev-diego', '../reqs_dbks.txt', '../user_databricks.yml', False, Tru
 COMSNS_FRAME = 300   # Max número de días para cobrar comisiones. 
 COMSNS_APPLY = 100   # Max número de comisiones para mandar en un llamado. 
 PAGE_MAX     = 200   # Max número de registros (eg. PersonSet) para pedir de un llamado. 
+
+DEBUG = False
+PAST_MISSED = True
 
 # pylint: disable=wrong-import-position
 # pylint: disable=wrong-import-order
@@ -166,8 +169,7 @@ print(f"There are {len(unproc_ids)} external IDs not processed.")
 
 # COMMAND ----------
 
-debugging = False
-if debugging: 
+if DEBUG: 
     for ii, id_row in enumerate(unproc_ids):
         print(ii, id_row.external_id)
         sub_comsns = (EpicDF(spark, at_commissions)
@@ -232,7 +234,8 @@ wdraw_withcols = [{
     'b_wdraw_rk_inhouse' : F.when(F.col('b_wdraw_is_inhouse'), 
         F.row_number().over(w_inhouse)).otherwise(-1)
     }, { 
-    'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') | (F.col('b_wdraw_rk_inhouse') > 3)
+    'b_wdraw_is_commissionable': ~F.col('b_wdraw_is_inhouse') 
+            | (F.col('b_wdraw_rk_inhouse') > 3)
     }, {  
     'b_wdraw_commission_status':  (F.when(~F.col('b_wdraw_is_commissionable'), -1)
         .when(F.col('atpt_mt_posting_date').isNull(), -2)
@@ -281,23 +284,26 @@ friendly_cols = ['atpt_acct', 'atpt_mt_eff_date', 'atpt_mt_posting_date',
     'b_core_acct', 'b_wdraw_acq_code', 'b_wdraw_month', 'b_wdraw_rk_acct', 
     'b_wdraw_is_inhouse', 'b_wdraw_rk_inhouse']
 
-commissions = (wdraw_txns
+_commissions = (wdraw_txns
     .filter_plus(*[
         F.col('b_wdraw_is_commissionable'), 
         F.col('b_wdraw_commission_status') == 0, 
         F.col('b_wdraw_rk_txns') == 1, 
         F.col('atpt_mt_posting_date') >= since_date])
-    .select(friendly_cols)
-    # .join(pre_commissions, how='anti', on='atpt_mt_ref_nbr')
-    )
+    .select(friendly_cols))
+
+commissions = (_commissions if not PAST_MISSED 
+                else _commissions.join(pre_commissions, how='anti', on='atpt_mt_ref_nbr') )
+    
 commissions.display()
 
 
 # COMMAND ----------
 
-(pre_commissions
-    .join(commissions, how='semi', on='atpt_mt_ref_nbr')
-    .display())
+if DEBUG: 
+    (pre_commissions
+        .join(commissions, how='semi', on='atpt_mt_ref_nbr')
+        .display())
 
 
 # COMMAND ----------
@@ -305,6 +311,17 @@ commissions.display()
 # MAGIC %md 
 # MAGIC ## 3. Fees application
 # MAGIC Create a SAP-session object to apply the transactions, and then call the corresponding API.  
+
+# COMMAND ----------
+
+process_df = (core_session
+    .process_commissions_atpt(commissions, 
+           cmsn_key='atm', out='response', **{'how-many': 50}))
+
+# COMMAND ----------
+
+if DEBUG: 
+    process_df.text
 
 # COMMAND ----------
 
@@ -321,8 +338,7 @@ verfy_cols = ['status_process', 'status_descr', 'log_msg']
 process_df = (core_session
     .process_commissions_atpt(commissions, 
            cmsn_key='atm', out='dataframe', **{'how-many': 50})
-    .assign(**dict.fromkeys(verfy_cols))
-    )
+    .assign(**dict.fromkeys(verfy_cols)))
 
 # COMMAND ----------
 
@@ -356,8 +372,8 @@ else:
 
 # COMMAND ----------
 
-recalculate = False
-if recalculate: 
+# Recalculate Commissions Table
+if DEBUG: 
     on_accounts = wdraw_txns.select('b_core_acct').distinct().collect()
     for a_row in on_accounts: 
         if a_row.b_core_acct == '000--MX': 
@@ -378,8 +394,7 @@ if recalculate:
 # COMMAND ----------
 
 # Alter Table 
-debug = False
-if debug:  
+if DEBUG:  
     a_df = (spark.read
         .load(at_commissions)  # convert r"STATUS(_DESCR|_PROCESS)?" to STRINGTYPE. 
         .withColumn('status', F.col('status').cast(T.StringType()))

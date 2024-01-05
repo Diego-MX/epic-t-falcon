@@ -1,5 +1,4 @@
 
 chardet
-httpx
-pyyaml
+httpx==0.23.0
 xmltodict
