@@ -14,8 +14,6 @@ from epic_py.tools import partial2
 
 load_dotenv('.env', override=True)
 
-# pylint: disable=line-too-long
-
 
 SETUP_2 = {
     'dev': {},
@@ -90,7 +88,7 @@ BLOB_PATHS = {
     'spei-gfb'     : "ops/core-banking/conciliations/recoif",
     'spei-c4b'     : "ops/core-banking/conciliations/spei",
     #'from-cms'     : "ops/regulatory/card-management/transformation-layer",
-    #'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready", # Extraer y descomprimir
+    #'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready", 
     #'reports'      : "ops/regulatory/transformation-layer", # R2422, SISPAGOS,
     'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.  
     'cms-data'     : "ops/card-management/datasets",        # transformation-layer (raw -> CuSn)
@@ -167,14 +165,14 @@ CORE_SETUP = {
 
 DATALAKE_PATHS = {
     'blob'         : "https://{}.blob.core.windows.net",    # STORAGE
-    'abfss'        : "abfss://{}@{}.dfs.core.windows.net",   # CONTAINER(bronze|silver|gold), STORAGE
+    'abfss'        : "abfss://{}@{}.dfs.core.windows.net",
     'btp'          : "ops/fraude/bronze/btp",                # ¿?
     'spei'         : "ops/transactions/spei",                # ¿?
     'spei2'        : "ops/fraude/bronze/spei",               # SPEI (original y conciliación)
     'spei-gfb'     : "ops/core-banking/conciliations/recoif",# SPEI conciliación II.
     'spei-c4b'     : "ops/core-banking/conciliations/spei",
     'from-cms'     : "ops/regulatory/card-management/transformation-layer",  #
-    'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready",  # Extraer y descomprimir
+    'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready",
     'reports'      : "ops/regulatory/transformation-layer",  # R2422, SISPAGOS,
     'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.
     'datasets'     : "ops/card-management/datasets",         # transformation-layer (raw -> CuSn)
@@ -198,21 +196,24 @@ LAYER_SETUP = {
             'zip'    : 'dbfs:/FileStore/',
             'origen' : 'dbfs:/FileStore/DAMNA.txt',
             'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/damna',
-            'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMNA/DAMNA_Processed/'}},
+            'procesados' : ('dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management'
+                    '/FilesUpload/DAMNA/DAMNA_Processed/')}},
     'ATPTX' : {
         'paths': {
             'zip'    : 'dbfs:/FileStore/',
             'origen' : 'dbfs:/FileStore/ATPTX.txt',
             'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/atptx',
             'alias'  : 'por rellenar Data Diego',
-            'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/ATPTX/ATPTX_Processed/'}},
+            'procesados' : ('dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management'
+                    '/FilesUpload/ATPTX/ATPTX_Processed/')}},
     'DAMBS' : {
         'paths': {
             'zip'    : 'dbfs:/FileStore/',
             'origen' : 'dbfs:/FileStore/DAMBS.txt',
             'delta'  : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/dambs',
             'alias'  : 'por rellenar Data Diego',
-            'procesados' : 'dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management/FilesUpload/DAMBS/DAMBS_Processed/'}},
+            'procesados' : ('dbfs:/mnt/lakehylia-bronze/ops/regulatory/card-management'
+                    '/FilesUpload/DAMBS/DAMBS_Processed/')}},
 }
 
 UAT_SPECS = {
@@ -362,19 +363,25 @@ class ConfigEnviron():
         oauth2_endpoint = f"https://login.microsoftonline.com/{tenant_id}/oauth2/token"
         if gen_value == 'gen2':
             pre_confs = {
-                f"fs.azure.account.auth.type.{blob_key}.dfs.core.windows.net"           : 'OAuth',
-                f"fs.azure.account.oauth.provider.type.{blob_key}.dfs.core.windows.net" : "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
-                f"fs.azure.account.oauth2.client.endpoint.{blob_key}.dfs.core.windows.net": oauth2_endpoint,
-                f"fs.azure.account.oauth2.client.id.{blob_key}.dfs.core.windows.net"    : sp_dict['client_id'],
-                f"fs.azure.account.oauth2.client.secret.{blob_key}.dfs.core.windows.net": sp_dict['client_secret']}
+                f"fs.azure.account.auth.type.{blob_key}.dfs.core.windows.net"           : 
+                        'OAuth',
+                f"fs.azure.account.oauth.provider.type.{blob_key}.dfs.core.windows.net" : 
+                        "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
+                f"fs.azure.account.oauth2.client.endpoint.{blob_key}.dfs.core.windows.net": 
+                        oauth2_endpoint,
+                f"fs.azure.account.oauth2.client.id.{blob_key}.dfs.core.windows.net"    : 
+                        sp_dict['client_id'],
+                f"fs.azure.account.oauth2.client.secret.{blob_key}.dfs.core.windows.net": 
+                        sp_dict['client_secret']}
         elif gen_value == 'gen1':
             pre_confs = {
-                f"fs.adl.oauth2.access.token.provider.type"    : 'ClientCredential',        # pylint: disable=fstring-without-interpolation
+                 "fs.adl.oauth2.access.token.provider.type"    : 'ClientCredential',
                 f"fs.adl.account.{blob_key}.oauth2.client.id"  : sp_dict['client_id'],      
                 f"fs.adl.account.{blob_key}.oauth2.credential" : sp_dict['client_secret'],  
                 f"fs.adl.account.{blob_key}.oauth2.refresh.url": oauth2_endpoint}
         elif gen_value == 'v2':
-            pre_confs = {f"fs.azure.account.key.{blob_key}.blob.core.windows.net": sp_dict['sas_string']}
+            pre_confs = {f"fs.azure.account.key.{blob_key}.blob.core.windows.net": 
+                    sp_dict['sas_string']}
 
         for a_conf, its_val in self.call_dict(pre_confs).items():
             print(f"{a_conf} = {its_val}")
