@@ -50,8 +50,8 @@ RESOURCES_2 = {
         'metastore': ('sqlserver-lakehylia-data-qas', 'lakehylia_metastore_qas')},
     'stg': {
         'storage' : 'stlakehyliastg',
-        'keyvault' : 'kv-opsConcil-adm-stg',
-        'metastore': ('sqlserver-lakehylia-adm-stg', 'lakehylia_metastore_stg')},
+        'keyvault' : 'kv-opsConcil-data-stg',
+        'metastore': ('sqlserver-lakehylia-data-stg', 'lakehylia_metastore_stg')},
     'prd': {
         'storage' : 'stlakehyliaprd',
         'keyvault': 'kv-opsConcil-data-prd',
@@ -64,6 +64,13 @@ CORE_2 = {
         'base_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/s4b",
         'auth_url': "https://apiqas.apimanagement.us21.hana.ondemand.com/oauth2/token",
         'client_id'    : 'core-api-key',
+        'client_secret': 'core-api-secret',
+        'sap_username' : 'core-api-user',
+        'sap_password' : 'core-api-password'},
+    'stg-sap':{        
+        'base_url': "https://sbx-latp-apim.stg.apimanagement.us20.hana.ondemand.com/s4b",
+        'auth_url': "https://latp-apim.stg.apimanagement.us20.hana.ondemand.com/oauth2/token",
+        'client_id': 'core-api-key',
         'client_secret': 'core-api-secret',
         'sap_username' : 'core-api-user',
         'sap_password' : 'core-api-password'},
