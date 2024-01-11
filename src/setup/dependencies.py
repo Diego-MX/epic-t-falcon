@@ -3,10 +3,10 @@
 # Wrapper para PIP INSTALL en un mismo job. Se debe ejecutar con cuidado. 
 
 from json import dumps
-from pathlib import Path
-from pkg_resources import working_set
 from subprocess import check_call
 from sys import argv
+
+from pkg_resources import working_set
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
 from pyspark.sql import SparkSession
 

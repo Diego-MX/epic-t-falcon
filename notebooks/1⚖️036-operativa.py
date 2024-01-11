@@ -23,7 +23,7 @@
 
 # COMMAND ----------
 
-from src.setup import pkg_epicpy
+from src.setup import pkg_epicpy    # pylint: disable=no-name-in-module
 pkg_epicpy.install_it('dev-diego', '../user_databricks.yml')
 # 'gh-1.4', '../user_databricks.yml', '4.7.1'
 
@@ -44,7 +44,7 @@ from operator import add, itemgetter as ɣ, methodcaller as ϱ
 from pytz import timezone as tz
 
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
-from pyspark.sql import functions as F, Row, SparkSession
+from pyspark.sql import functions as F, SparkSession  # pylint: disable=import-error,no-name-in-module
 from toolz import compose_left, pipe
 from toolz.curried import map as map_z
 

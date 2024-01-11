@@ -15,15 +15,17 @@
 
 # COMMAND ----------
 
-from src.setup.pkg_epicpy import install_it
-install_it('dev-diego', '../reqs_dbks.txt', '../user_databricks.yml', False, True)
-# epic_ref, reqs, user_file, typing, verbose  #
+# pylint: disable=wrong-import-position
+# pylint: disable=wrong-import-order
+
+from src.setup import dependencies as deps    # pylint: disable=no-name-in-module
+deps.from_reqsfile('../reqs_dbks.txt')
+deps.gh_epicpy('meetme-1', '../user_databricks.yml', False, True)
 
 # COMMAND ----------
 
-# pylint: disable=wrong-import-position
 from datetime import datetime as dt
-from operator import attrgetter as σ, methodcaller as ϱ
+from operator import attrgetter as σ
 import re
 
 from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
@@ -31,16 +33,16 @@ from pyspark.sql import functions as F, SparkSession, types as T
 from toolz import compose_left
 from toolz.curried import map as map_z
 
+from epic_py.delta import EpicDF
+from epic_py.tools import (dirfiles_df, partial2, 
+    next_whole_period, past_whole_period)
+
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
 
 # COMMAND ----------
 
-from epic_py.delta import EpicDF
-from epic_py.tools import (dirfiles_df, partial2, 
-    next_whole_period, past_whole_period)
-
-from src.tools import write_pandas
+from src.tools import write_pandas      # pylint: disable=ungrouped-imports
 from config import t_resourcer, DATALAKE_PATHS as paths
     # ENV, SERVER, RESOURCE_SETUP, t_agent, ConfigEnviron
 

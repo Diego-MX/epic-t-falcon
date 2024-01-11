@@ -26,7 +26,7 @@ c4b_spei_specs = {
     'mutate': {
         'txn_postdate' : F.col('txn_postdate').cast('date'),
         'value_date'   : F.col('value_date').cast('date'),
-        'txn_valid'    : F.col('txn_status') != 'Posting Canceled',  # Filtrar
+        'txn_valid'    :~F.col('txn_status').isin(['Posting Canceled', 'Contab.cancelada']),
         'ref_num'      : F.col('end_to_end'),
         'account_num'  : F.substring(F.col('account_c4b'), 1, 11).cast('long'),
         'txn_type_code': F.col('txn_type_code'),
