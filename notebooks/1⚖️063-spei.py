@@ -15,8 +15,9 @@
 
 # COMMAND ----------
 
-with open("../src/install_nb_reqs.py") as nb_reqs: 
-    exec(nb_reqs.read())
+from src.setup import dependencies as deps
+deps.from_reqsfile('../reqs_dbks.txt')
+deps.gh_epicpy('mmetme-1', '../user_databricks.yml', False, True)
 
 # COMMAND ----------
 
