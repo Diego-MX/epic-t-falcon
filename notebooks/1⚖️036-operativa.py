@@ -23,8 +23,9 @@
 
 # COMMAND ----------
 
-from src.setup import pkg_epicpy    # pylint: disable=no-name-in-module
-pkg_epicpy.install_it('dev-diego', '../user_databricks.yml')
+from src.setup import dependencies as deps
+
+deps.gh_epicpy('gh-1.9', '../user_databricks.yml', False, True)
 # 'gh-1.4', '../user_databricks.yml', '4.7.1'
 
 # COMMAND ----------
@@ -156,6 +157,10 @@ c4b_data = (c4b_src.setup_data(c4b_prep)
     .join(prod_df, on='ACCOUNTPRODUCTID', how='left'))
 
 c4b_data.display()
+
+# COMMAND ----------
+
+c4b_prep.display()
 
 # COMMAND ----------
 

@@ -59,6 +59,8 @@ class Sourcer():
         return T.StructType(fields)
 
     
+
+    
 class Conciliator:      # pylint: disable=missing-class-docstring
     def __init__(self, src_1, src_2, check): 
         nm_1 = getattr(src_1, 'name', 1)

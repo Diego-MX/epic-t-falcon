@@ -89,8 +89,7 @@ read_df
 # COMMAND ----------
 
 def path_2_blob(abs_path): 
-    rel_path = re.sub(r".*windows\.net/", "", abs_path)
-    return rel_path
+    return re.sub(r".*windows\.net/", "", abs_path)
 
 # COMMAND ----------
 
