@@ -17,7 +17,7 @@
 
 from src.setup import dependencies as deps
 deps.from_reqsfile('../reqs_dbks.txt')
-deps.gh_epicpy('mmetme-1', '../user_databricks.yml', False, True)
+deps.gh_epicpy('meetme-1', '../user_databricks.yml', False, True)
 
 # COMMAND ----------
 
@@ -27,13 +27,13 @@ from operator import add, itemgetter, methodcaller as ϱ
 from pytz import timezone as tz
 
 from pyspark.dbutils import DBUtils     # pylint: disable=no-name-in-module,import-error
-from pyspark.sql import SparkSession, functions as F
+from pyspark.sql import SparkSession, functions as F    # pylint: disable=import-error 
 from toolz import compose_left, pipe
 
 from epic_py.tools import dirfiles_df, partial2
 from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
 from refs.layouts import conciliations as c_layouts
-from src.conciliation import Sourcer, Conciliator, files_matcher, process_files
+from src.conciliation import Sourcer, Conciliator, files_matcher, process_files # pylint: disable=ungrouped-imports
 
 spark = SparkSession.builder.getOrCreate()
 dbutils = DBUtils(spark)
