@@ -10,8 +10,8 @@ spei_gfb = {  # RECOIF
         'clabe': 'long', 'receiver_channel': 'str', 'receiver_service': 'str', 
         'txn_amount': 'dbl', 'txn_status': 'str', 'rejection_reason': 'str', 
         'sender_bank': 'str', 'date_added': 'str', 'receiver_name': 'str', 
-        'receiver_account': 'long', 
-        'receiver_clabe': 'long', 'receiver_rfc': 'str', 'concept': 'str', 'reference': 'str', 
+        'receiver_account': 'long', 'receiver_clabe': 'long', 
+        'receiver_rfc': 'str', 'concept': 'str', 'reference': 'str', 
         'tracking_key': 'str', 'uuid': 'str', 'status': 'str', 'posting_date': 'date'}), 
     'mutate': {
         'txn_valid'     : F.lit(True),             

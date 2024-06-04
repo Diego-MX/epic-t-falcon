@@ -7,7 +7,6 @@ from toolz import compose_left
 
 from epic_py.tools import packed, partial2
 
-
 file_formats = {
     'subledger'     : r'CONCILIA(?P<key>\w+)(?P<date>\d{8})\.txt', 
     'Cloud-Banking' : r'CONCILIA(?P<key>\w+)(?P<date>\d{8})\.txt', 
@@ -20,30 +19,42 @@ date_formats = {
     'spei-ledger' : '%d%m%Y'}
 
 
-def process_files(file_df: pd_DF, a_src) -> pd_DF: 
+def process_files(file_df:pd_DF, a_src) -> pd_DF: 
     date_fmt = date_formats.get(a_src, '%Y%m%d')
     date_fmtr = compose_left(σ('date'), # df: df.date > to_datetime(...)
         partial2(pd.to_datetime, ..., format=date_fmt), 
         σ('dt.date'))
+        # lambda ss: pd.todatetime(ss.date, date_fmt).dt.date 
     file_keys = (file_df['name'].str.extract(file_formats[a_src])
         .assign(date=date_fmtr, source=a_src))
     return pd.concat([file_df, file_keys], axis=1)
 
 
-def files_matcher(files_df, match_dict): 
-    nn, pp = len(files_df), len(match_dict)
-    matcher = pd.Series(0, range(nn))
+def files_matcher(files_df:pd_DF, match_dict:dict) -> tuple: 
+    # FILES_DF es un DF de archivos
+    # MATCH_DICT usa keys de nombres de columnas de FILES_DF,
+    #       y valores para comparar en FILES_DF. 
+    # ---> 
+    # W_MATCHER es FILES_DF con columna nueva
+    # PATH es ruta de archivo ganadora cuando hay ganador
+    # STATUS: 1 full-match es único
+    #   2 match parcial pero único
+    #   3 cualquier otro caso
+    
+    (nn, pp) = (len(files_df), len(match_dict))
+    matcher_s = pd.Series(0, range(nn))
     for ii, kv in enumerate(match_dict.items()): 
+        # KV (KEY, VALUE)
         k_srs, v_val = files_df[kv[0]], kv[1]
         print(f"Compare types: {k_srs.dtype}, {type(v_val)}")
-        matcher += (pp-ii) * (k_srs == v_val).astype(int)
+        matcher_s += (pp-ii) * (k_srs == v_val).astype(int)
     w_match = (files_df
-        .assign(matcher=matcher)
+        .assign(matcher=matcher_s)
         .sort_values(['matcher', *match_dict], ascending=False)
         .reset_index()
         .loc[:, ['matcher', *match_dict, 'modificationTime', 'name', 'size', 'path']])
     
-    are_max = (matcher == max(matcher))
+    are_max = (matcher_s == max(matcher_s))
     one_match = (sum(are_max) == 1)
     full_match = (w_match.loc[0, 'matcher'] == sum(range(pp+1)))
     if full_match and one_match: 
@@ -104,4 +115,6 @@ def get_source_path(dir_df, file_keys):
         print(f"File keys match is not unique... (len: {path_df.shape[0]})")
         return None
     return path_df['path'].iloc[0]
-    
+
+
+
