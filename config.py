@@ -131,7 +131,6 @@ RESOURCE_SETUP = {
     }
 }
 
-
 CORE_SETUP = {
     # MAIN y AUTH se usan diferentes en las APIs de SAP.
     # ... cuidado con (USERNAME, PASSWORD) de cada uno.
@@ -160,6 +159,7 @@ CORE_SETUP = {
                 'grant_type': 'password',
                 'username': (1, 'core-api-user'),
                 'password': (1, 'core-api-password')} } } }
+
 
 # Env-independent Usage Variables.
 
@@ -236,7 +236,7 @@ UAT_SPECS = {
             'CurrentBalanceSign'   : (2545,  1), #
             'CurrentBalance'       : (2546, 17)},# ambs_curr_bal
         'types': {
-            'CustomerNumber'       : 'long',       #
+            'CustomerNumber'       : 'long',
             'CardExpirationDate'   : 'date',
             'CurrentBalanceSign'   : 'string',
             'CurrentBalance'       : 'double',
@@ -260,13 +260,10 @@ UAT_SPECS = {
 
 class ConfigEnviron():
     '''
-    This class sets up the initial authentication object.  It reads its
-    ENV_TYPE or cycle [dev,qas,prod] and SERVER(_TYPE) (local,dbks,wap).
-    And from then establishes its first secret-getter in order to later
-    establish its identity wether by a managed identity or service principal.
-    From then on, use PlatformResourcer to access other resources.
+    Esta clase ya no se usa, cambiar a EpicIdentity
     '''
     def __init__(self, env_type, server, spark=None):
+        warn("CONFIG_ENVIRON es código viejo.  Cambiar a EPIC_IDENTITY.")
         print(f"Env, Server: {env_type}, {server}")
         self.env = env_type
         self.spark = spark
@@ -429,3 +426,5 @@ t_resourcer = t_agent.get_resourcer(RESOURCES_2[ENV], check_all=False)
 
 s_secret = t_resourcer.get_vault_secretter()
 t_core = t_agent.prep_sap_connect(CORE_2[CORE_ENV], s_secret)
+
+

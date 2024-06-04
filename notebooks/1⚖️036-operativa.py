@@ -7,11 +7,9 @@
 # MAGIC
 # MAGIC Genera archivos para verificar que las dos sean iguales, o que las diferencias sean controladas, o que las diferencias estén identificadas.  
 # MAGIC
-# MAGIC
-# MAGIC
 # MAGIC El objetivo de este notebook es correr los scripts para ejecutar las conciliaciones. 
 # MAGIC El código se divide en las siguientes partes:  
-# MAGIC &nbsp; 0. Preparar librerías, variables, funciones, etc.  
+# MAGIC &nbsp;&nbsp;&nbsp;&nbsp; 0. Preparar librerías, variables, funciones, etc.  
 # MAGIC 1. Preparar los esquemas y carpetas.  
 # MAGIC 2. Lectura de tablas y fuentes.  
 # MAGIC 3. Generación y escritura de reportes.    
@@ -49,9 +47,9 @@ from pyspark.sql import functions as F, SparkSession  # pylint: disable=import-e
 from toolz import compose_left, pipe
 from toolz.curried import map as map_z
 
-from epic_py.tools import dirfiles_df, partial2
+from epic_py.tools import dirfiles_df, partial2, thread
 from src.conciliation import Sourcer, Conciliator, files_matcher, process_files    # pylint: disable=ungrouped-imports 
-from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
+from config import t_agent, t_resourcer, DATALAKE_PATHS as t_paths
 from refs.layouts import conciliations as c_layouts
 
 spark = SparkSession.builder.getOrCreate()
@@ -60,9 +58,9 @@ dbutils = DBUtils(spark)
 # COMMAND ----------
 
 dbutils.widgets.text('date', 'yyyy-mm-dd')
-dbutils.widgets.combobox('c4b',  'CC4B5', 
-    ['CC4B2', 'CC4B3', 'CC4B5', 'CCB14', 'CCB15', 'CS4B1', 'FZE02'])
-dbutils.widgets.combobox('fpsl', 'FZE07', 
+dbutils.widgets.combobox('c4b',  'CS4B1', 
+    ['CS4B1', 'CC4B2', 'CC4B3', 'CC4B5', 'CCB14', 'CCB15', 'FZE02'])
+dbutils.widgets.combobox('fpsl', 'F1106', 
     ['FZE01', 'FZE02', 'FZE03', 'FZE04', 'FZE05', 'FZE06', 'FZE07', 'FZE08', 'F1106'])
 
 # COMMAND ----------
@@ -73,12 +71,14 @@ t_storage = t_resourcer['storage']
 t_permissions = t_agent.prep_dbks_permissions(t_storage, 'gen2')
 t_resourcer.set_dbks_permissions(t_permissions)
 λ_address = (lambda ctner, p_key : t_resourcer.get_resource_url(
-    'abfss', 'storage', container=ctner, blob_path=paths[p_key]))
+    'abfss', 'storage', container=ctner, blob_path=t_paths[p_key]))
 
 at_conciliations = λ_address('raw', 'conciliations')
 to_reports = λ_address('gold', 'reports2')
 
 dumps2 = partial2(dumps, default=str)
+
+# λ_parent = lambda path: '/'.join(path.split('/')[0:-1]+['tmp'])
 tmp_parent = compose_left(
     ϱ('split', '/'), ɣ(slice(0, -1)),
     partial2(add, ..., ['tmp',]),
@@ -132,8 +132,7 @@ else:
 src_0  = 'cloud-banking'         # pylint: disable=invalid-name
 files_0 = dirfiles_df(f"{at_conciliations}/{src_0}", spark)
 files_1 = process_files(files_0, src_0)
-c4b_args = (files_1, dict(date=r_date, key=c4b_key))
-(c4b_files, c4b_path, c4b_status) = files_matcher(*c4b_args)
+(c4b_files, c4b_path, c4b_status) = files_matcher(files_1, {"date":r_date, "key":c4b_key})
 c4b_files.query('matcher > 1')     # pylint: disable=expression-not-assigned  
 
 # COMMAND ----------
@@ -151,16 +150,16 @@ prod_df = pipe(prod_dict.items(),
     map_z(name_item(('tipo_prod', 'ACCOUNTPRODUCTID'))), 
     spark.createDataFrame)
 
+# Dentro de START_DATA, Spark no reconoce la opción
+# TIMESTAMPFORMAT = 'd.M.y H:m:s'
+spark.conf.set("spark.sql.legacy.timeParserPolicy", "LEGACY")
+
 c4b_src = Sourcer(c4b_path, **c_layouts.c4b_specs)
 c4b_prep = c4b_src.start_data(spark)
 c4b_data = (c4b_src.setup_data(c4b_prep)
     .join(prod_df, on='ACCOUNTPRODUCTID', how='left'))
 
 c4b_data.display()
-
-# COMMAND ----------
-
-c4b_prep.display()
 
 # COMMAND ----------
 
@@ -173,8 +172,7 @@ src_1   = 'subledger'    # pylint: disable=invalid-name
 
 files_0 = dirfiles_df(f"{at_conciliations}/{src_1}", spark)
 files_1 = process_files(files_0, src_1)
-files_args = (files_1, dict(date=r_date, key=fpsl_key))
-(ldgr_files, ldgr_path, ldgr_status) = files_matcher(*files_args)
+(ldgr_files, ldgr_path, ldgr_status) = files_matcher(files_1, {'date': r_date, 'key':fpsl_key})
 ldgr_files.query('matcher > 1')
 
 # COMMAND ----------
@@ -247,6 +245,6 @@ report_saver(c4b_036, f"{dir_036}/cloud-banking/{s_date}_036_c4b.csv")
 
 # COMMAND ----------
 
-a_dir = f"{dir_036}/compare/processed"
+a_dir = f"{dir_036}/cloud-banking/processed"
 print(a_dir)
-dirfiles_df(a_dir, spark)
+dirfiles_df(a_dir)

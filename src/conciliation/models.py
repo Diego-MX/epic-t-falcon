@@ -1,5 +1,6 @@
 """Main models are SOURCER, CONCILIATOR"""
 from operator import methodcaller as ϱ
+from pydantic import BaseModel
 from pyspark.sql import functions as F, types as T
 from toolz import compose_left
 
@@ -16,6 +17,7 @@ schema_types = {
 
 class Sourcer(): 
     def __init__(self, path, **kwargs): 
+        # (... path, name, alias, match, mutate, schema, options)
         self.path = path
         self.name = kwargs.get('name')
         self.alias = kwargs.get('alias')
@@ -59,10 +61,8 @@ class Sourcer():
         return T.StructType(fields)
 
     
-
-    
 class Conciliator:      # pylint: disable=missing-class-docstring
-    def __init__(self, src_1, src_2, check): 
+    def __init__(self, src_1:Sourcer, src_2:Sourcer, check): 
         nm_1 = getattr(src_1, 'name', 1)
         nm_2 = getattr(src_2, 'name', 2)
         m_1, m_2 = src_1.match, src_2.match
@@ -112,4 +112,9 @@ class Conciliator:      # pylint: disable=missing-class-docstring
         elif isinstance(str_keys, str) and str_keys.startswith('~'):
             f_col = F.col('check_key') != str_keys[1:]            
         return f_col
+    
+
+
+
+        
     
