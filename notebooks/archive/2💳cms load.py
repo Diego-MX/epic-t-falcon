@@ -21,12 +21,14 @@
 
 # COMMAND ----------
 
-with open("../src/install_nb_reqs.py") as nb_reqs: 
-    exec(nb_reqs.read())
+# pylint: disable=wrong-import-error
+import dependencies as deps
+deps.token_from_server()
+deps.install_reqs()
 
 # COMMAND ----------
 
-# pylint: disable=wrong-import-error
+
 from pathlib import Path
 from delta.tables import DeltaTable as Δ
 from pyspark.sql import functions as F, Window as W

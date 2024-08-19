@@ -15,8 +15,9 @@
 
 # COMMAND ----------
 
-from src.setup import pkg_epicpy
-pkg_epicpy.install_it()
+import dependencies as deps
+deps.token_from_server()
+deps.install_reqs()
 
 # COMMAND ----------
 

@@ -1,3 +1,11 @@
+"""
+Se especifican variables generales del proyecto.
+
+Aposteriori a la creación del archivo:
+- Incluye las variables de recursos externos, para unificar con equipo Infra.
+- Sólo depende de las librerías estándar de Python.
+"""
+
 from operator import attrgetter as σ
 from os import environ, getenv, remove
 from pathlib import Path
@@ -14,7 +22,9 @@ from epic_py.tools import partial2
 
 load_dotenv('.env', override=True)
 
-# pylint: disable=line-too-long
+EPIC_REF = 'gh-1.6'
+REQS_FILE = "pips_reqs.txt"
+USER_DBKS = "user_databricks.json"
 
 
 SETUP_2 = {
@@ -36,7 +46,7 @@ SETUP_2 = {
     'prd': {
         'databricks-scope': 'dbks-ops-conciliations',  # dbks-ops-conciliations
         'service-principal' : {
-            'tenant_id'        : 'aad-tenant-id',  
+            'tenant_id'        : 'aad-tenant-id',
             'subscription_id'  : 'sp-ops-conciliations-subscription',  # sp-collections-subscription
             'client_id'        : 'sp-ops-conciliations-client',        # sp-collections-client
             'client_secret'    : 'sp-ops-conciliations-secret'}},      # sp-collections-secret
@@ -48,7 +58,7 @@ RESOURCES_2 = {
         'storage' : 'stlakehyliaqas',
         'keyvault' : 'kv-opsConcil-data-qas', # kv-cx-data-qas
         'metastore': ('sqlserver-lakehylia-data-qas', 'lakehylia_metastore_qas')},
-    'stg': {        
+    'stg': {
         'storage' : 'stlakehyliastg',
         'keyvault' : 'kv-opsConcil-adm-stg',
         'metastore': ('sqlserver-lakehylia-adm-stg', 'lakehylia_metastore_stg')},
@@ -85,11 +95,11 @@ BLOB_PATHS = {
     #'from-cms'     : "ops/regulatory/card-management/transformation-layer",
     #'prepared'     : "ops/regulatory/card-management/transformation-layer/unzipped-ready", # Extraer y descomprimir
     #'reports'      : "ops/regulatory/transformation-layer", # R2422, SISPAGOS,
-    'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.  
+    'reports2'     : "ops/regulatory/conciliations",         # Ya no me acuerdo qué chingados.
     'cms-data'     : "ops/card-management/datasets",        # transformation-layer (raw -> CuSn)
     #'withdrawals'  : "ops/account-management/withdrawals",  # todos los retiros
     'commissions'  : "ops/account-management/commissions",  # retiros de cajeros
-    'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI. 
+    'conciliations': "ops/core-banking/conciliations"        # conciliación operativa y de SPEI.
 }
 
 
@@ -228,7 +238,7 @@ UAT_SPECS = {
             'CurrentBalanceSign'   : (2545,  1), #
             'CurrentBalance'       : (2546, 17)},# ambs_curr_bal
         'types': {
-            'CustomerNumber'       : 'long',       #
+            'CustomerNumber'       : 'long',
             'CardExpirationDate'   : 'date',
             'CurrentBalanceSign'   : 'string',
             'CurrentBalance'       : 'double',
@@ -269,14 +279,14 @@ class ConfigEnviron():
     def set_secretters(self):
         if  self.server == 'local':
             if load_dotenv is None:
-                raise Exception("Failed to load library DOTENV.")       # pylint: disable=broad-exception-raised
+                raise Exception("Failed to load library DOTENV.")
             load_dotenv('.env', override=True)
             get_secret = lambda key: getenv(re.sub('-', '_', key.upper()))
 
         elif self.server == 'dbks':
             if self.spark is None:
-                raise("Please provide a spark context on ConfigEnviron init.")      # pylint: disable=raising-bad-type
-            from pyspark.dbutils import DBUtils     # pylint: disable=import-error,import-outside-toplevel,no-name-in-module
+                raise("Please provide a spark context on ConfigEnviron init.")
+            from pyspark.dbutils import DBUtils
             dbutils = DBUtils(self.spark)
             get_secret = (lambda key:
                 dbutils.secrets.get(scope=self.config['scope'], key=re.sub('_', '-', key.lower())))
@@ -299,12 +309,12 @@ class ConfigEnviron():
             the_creds = ClientSecretCredential(**principal_keys)
         elif self.server in ['wap']:
             the_creds = DefaultAzureCredential()
-        self.credential = the_creds     # pylint: disable=attribute-defined-outside-init
+        self.credential = the_creds
 
 
     def get_blob_service(self, account=None):
         if not hasattr(self, 'blob_services'):
-            self.blob_services = {}     # pylint: disable=attribute-defined-outside-init
+            self.blob_services = {}
 
         if account is None:
             account = self.config['storage']
@@ -321,7 +331,7 @@ class ConfigEnviron():
     def upload_storage_blob(self, a_file, blob, container, account=None, overwrite=False):
         b_service = self.get_blob_service(account)
 
-        the_blob = b_service.get_blob_service(container, blob)      # pylint: disable=no-member
+        the_blob = b_service.get_blob_service(container, blob)
         with open(a_file, 'rb') as _b:
             the_blob.upload_blob(_b, overwrite=overwrite)
 
@@ -362,9 +372,9 @@ class ConfigEnviron():
                 f"fs.azure.account.oauth2.client.secret.{blob_key}.dfs.core.windows.net": sp_dict['client_secret']}
         elif gen_value == 'gen1':
             pre_confs = {
-                f"fs.adl.oauth2.access.token.provider.type"    : 'ClientCredential',        # pylint: disable=fstring-without-interpolation
-                f"fs.adl.account.{blob_key}.oauth2.client.id"  : sp_dict['client_id'],      
-                f"fs.adl.account.{blob_key}.oauth2.credential" : sp_dict['client_secret'],  
+                f"fs.adl.oauth2.access.token.provider.type"    : 'ClientCredential',
+                f"fs.adl.account.{blob_key}.oauth2.client.id"  : sp_dict['client_id'],
+                f"fs.adl.account.{blob_key}.oauth2.credential" : sp_dict['client_secret'],
                 f"fs.adl.account.{blob_key}.oauth2.refresh.url": oauth2_endpoint}
         elif gen_value == 'v2':
             pre_confs = {f"fs.azure.account.key.{blob_key}.blob.core.windows.net": sp_dict['sas_string']}

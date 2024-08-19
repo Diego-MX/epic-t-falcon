@@ -1,5 +1,0 @@
-
-chardet
-httpx
-pyyaml
-xmltodict

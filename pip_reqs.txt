@@ -1,0 +1,17 @@
+# python 3.10
+
+authlib~=1.0
+azure-identity~=1.12
+azure-keyvault-secrets~=4.6
+azure-storage-blob~=12.9
+chardet
+delta-spark~=1.2
+httpx
+httpx~=0.23
+pandas~=1.5
+pyspark~=3.2
+pytz~=2022.7
+pyyaml
+xmltodict~=0.12
+
+epic-py @ git+https://${GH_ACCESS_TOKEN}@github.com/Bineo2/data-python-tools@gh-1.6

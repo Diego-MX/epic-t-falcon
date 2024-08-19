@@ -44,9 +44,12 @@
 
 # COMMAND ----------
 
-from src.setup.pkg_epicpy import install_it
-install_it('dev-diego', '../reqs_dbks.txt', '../user_databricks.yml', False, True)
-# epic_ref, reqs, user_file, typing, verbose
+# pylint: disable=wrong-import-position
+# pylint: disable=wrong-import-order
+# pylint: disable=multiple-statements
+import dependencies as deps
+deps.token_from_server()
+deps.install_reqs()
 
 # COMMAND ----------
 
@@ -54,10 +57,6 @@ install_it('dev-diego', '../reqs_dbks.txt', '../user_databricks.yml', False, Tru
 COMSNS_FRAME = 300   # Max número de días para cobrar comisiones. 
 COMSNS_APPLY = 100   # Max número de comisiones para mandar en un llamado. 
 PAGE_MAX     = 200   # Max número de registros (eg. PersonSet) para pedir de un llamado. 
-
-# pylint: disable=wrong-import-position
-# pylint: disable=wrong-import-order
-# pylint: disable=multiple-statements
 
 # COMMAND ----------
 

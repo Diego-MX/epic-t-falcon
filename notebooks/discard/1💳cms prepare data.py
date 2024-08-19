@@ -28,8 +28,9 @@
 
 # COMMAND ----------
 
-with open("../src/install_nb_reqs.py") as nb_reqs: 
-    exec(nb_reqs.read())
+import dependencies as deps
+deps.token_from_server()
+deps.install_reqs()
 
 # COMMAND ----------
 

@@ -15,17 +15,21 @@
 
 # COMMAND ----------
 
-with open("../src/install_nb_reqs.py") as nb_reqs: 
-    exec(nb_reqs.read())
+# pylint: disable=import-error
+# pylint: disable=no-name-in-module
+# pylint: disable=wrong-import-position
+
+import dependencies as deps
+deps.token_from_server()
+deps.install_reqs()
 
 # COMMAND ----------
 
-# pylint: disable=wrong-import-position
 from datetime import datetime as dt
 from operator import attrgetter as σ, methodcaller as ϱ
 import re
 
-from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
+from pyspark.dbutils import DBUtils     
 from pyspark.sql import functions as F, SparkSession, types as T
 from toolz import compose_left
 from toolz.curried import map as map_z

@@ -15,18 +15,23 @@
 
 # COMMAND ----------
 
-from src.setup import pkg_epicpy
-pkg_epicpy.install_it()
-
-# COMMAND ----------
-
-# pylint: disable=wrong-import-position,wrong-import-order
+# pylint: disable=expression-not-assigned  
+# pylint: disable=import-error
+# pylint: disable=invalid-name
 # pylint: disable=missing-module-docstring
+# pylint: disable=multiple-statementnt
+# pylint: disable=no-name-in-module 
+# pylint: disable=ungrouped-imports 
+# pylint: disable=wrong-import-order
+# pylint: disable=wrong-import-position
+import dependencies as deps
+deps.token_from_server()
+deps.install_epicpy()
 
 # COMMAND ----------
 
 # from importlib import reload
-# from src import conciliation; reload(conciliation)      # pylint: disable=multiple-statements
+# from src import conciliation; reload(conciliation)      
 # import config; reload(config)
 
 from collections import OrderedDict, namedtuple
@@ -35,13 +40,13 @@ from json import dumps
 from operator import add, itemgetter as ɣ, methodcaller as ϱ
 from pytz import timezone as tz
 
-from pyspark.dbutils import DBUtils     # pylint: disable=import-error,no-name-in-module
+from pyspark.dbutils import DBUtils     
 from pyspark.sql import functions as F, Row, SparkSession
 from toolz import compose_left, thread
 from toolz.curried import map as map_z
 
 from epic_py.tools import dirfiles_df, partial2
-from src.conciliation import Sourcer, Conciliator, files_matcher, process_files    # pylint: disable=ungrouped-imports 
+from src.conciliation import Sourcer, Conciliator, files_matcher, process_files    
 from config import t_agent, t_resourcer, DATALAKE_PATHS as paths
 from refs.layouts import conciliations as c_layouts
 
@@ -118,12 +123,12 @@ else:
 
 # COMMAND ----------
 
-src_0  = 'cloud-banking'         # pylint: disable=invalid-name
+src_0  = 'cloud-banking'         
 files_0 = dirfiles_df(f"{at_conciliations}/{src_0}", spark)
 files_1 = process_files(files_0, src_0)
 c4b_args = (files_1, dict(date=r_date, key=c4b_key))
 (c4b_files, c4b_path, c4b_status) = files_matcher(*c4b_args)
-c4b_files.query('matcher > 1')     # pylint: disable=expression-not-assigned  
+c4b_files.query('matcher > 1')     
 
 # COMMAND ----------
 
@@ -152,7 +157,7 @@ c4b_data.display()
 
 # COMMAND ----------
 
-src_1 = 'subledger'    # pylint: disable=invalid-name 
+src_1 = 'subledger'    
 
 files_0 = dirfiles_df(f"{at_conciliations}/{src_1}", spark)
 files_1 = process_files(files_0, src_1)

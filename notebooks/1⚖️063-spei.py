@@ -15,17 +15,24 @@
 
 # COMMAND ----------
 
-with open("../src/install_nb_reqs.py") as nb_reqs: 
-    exec(nb_reqs.read())
+# pylint: disable=expression-not-assigned
+# pylint: disable=import-error
+# pylint: disable=invalid-name
+# pylint: disable=no-name-in-module
+# pylint: disable=wrong-import-order
+# pylint: disable=wrong-import-position
+
+import dependencies as deps
+deps.token_from_server()
+deps.install_reqs()
 
 # COMMAND ----------
 
-# pylint: disable=wrong-import-order,wrong-import-position
 from datetime import datetime as dt, timedelta as delta
 from operator import add, itemgetter, methodcaller as ϱ
 from pytz import timezone as tz
 
-from pyspark.dbutils import DBUtils     # pylint: disable=no-name-in-module,import-error
+from pyspark.dbutils import DBUtils     
 from pyspark.sql import SparkSession, functions as F
 from toolz import compose_left, pipe
 
@@ -71,7 +78,7 @@ recoif_key = dbutils.widgets.get('recoif')
 w_date = dbutils.widgets.get('date')
 
 if w_date == 'yyyy-mm-dd':
-    now_mx = dt.now(tz('America/Mexico_City'))      # pylint: disable=invalid-name
+    now_mx = dt.now(tz('America/Mexico_City'))      
     r_date = now_mx.date() - delta(days=1) 
     s_date = r_date.strftime('%Y-%m-%d')
 else:
@@ -121,14 +128,14 @@ Reports  : {to_reports}"""[1:])
 
 # COMMAND ----------
 
-src_0 = 'spei-banking'    # pylint: disable=invalid-name 
+src_0 = 'spei-banking'    
 
 pre_files = pipe(at_banking, 
     partial2(dirfiles_df, ..., spark), 
     partial2(process_files, ..., src_0))
 c4b_args = (pre_files, dict(date=r_date, key2=c4b_key))
 (c4b_files, c4b_path, c4b_status) = files_matcher(*c4b_args)
-c4b_files.query('matcher > 0')     # pylint: disable=expression-not-assigned
+c4b_files.query('matcher > 0')     
 
 # COMMAND ----------
 
@@ -155,13 +162,13 @@ c4b_data.display()
 
 # COMMAND ----------
 
-src_1 = 'spei-ledger'    # pylint: disable=invalid-name 
+src_1 = 'spei-ledger'    
 
 files_0 = dirfiles_df(at_ledger, spark)
 files_1 = process_files(files_0, src_1)
 gfb_args = (files_1, dict(date=r_date, key=recoif_key))
 (gfb_files, gfb_path, gfb_status) = files_matcher(*gfb_args)
-gfb_files.query('matcher > 1')     # pylint: disable=expression-not-assigned
+gfb_files.query('matcher > 1')     
 
 # COMMAND ----------
 
