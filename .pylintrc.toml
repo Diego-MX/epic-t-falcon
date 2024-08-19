@@ -65,10 +65,18 @@ logging-modules = [ "logging",]
 
 [tool.pylint."messages control"]
 confidence = [ "HIGH", "CONTROL_FLOW", "INFERENCE", "INFERENCE_FAILURE", "UNDEFINED",]
-disable = [ "raw-checker-failed", "bad-inline-option", "locally-disabled", "file-ignored", "suppressed-message", "useless-suppression", "deprecated-pragma", "use-symbolic-message-instead", "use-implicit-booleaness-not-comparison-to-string", "use-implicit-booleaness-not-comparison-to-zero", "missing-final-newline", "missing-function-docstring", "missing-module-docstring", "non-ascii-module-import", "non-ascii-name", "superfluous-parens", "trailing-whitespace", "trailing-newlines", "unnecessary-lambda-assignment", "use-dict-literal",]
+disable = [ "raw-checker-failed", "bad-inline-option", "locally-disabled", "file-ignored", 
+    "suppressed-message", "useless-suppression", "deprecated-pragma", 
+    "use-symbolic-message-instead", "use-implicit-booleaness-not-comparison-to-string", 
+    "use-implicit-booleaness-not-comparison-to-zero", "missing-final-newline", 
+    "missing-function-docstring", "missing-module-docstring", "non-ascii-module-import", 
+    "non-ascii-name", "superfluous-parens", "trailing-whitespace", "trailing-newlines", 
+    "unnecessary-lambda-assignment", "use-dict-literal",]
 
 [tool.pylint.method_args]
-timeout-methods = [ "requests.api.delete", "requests.api.get", "requests.api.head", "requests.api.options", "requests.api.patch", "requests.api.post", "requests.api.put", "requests.api.request",]
+timeout-methods = [ "requests.api.delete", "requests.api.get", "requests.api.head", 
+    "requests.api.options", "requests.api.patch", "requests.api.post", "requests.api.put", 
+    "requests.api.request",]
 
 [tool.pylint.miscellaneous]
 notes = [ "FIXME", "XXX", "TODO",]
@@ -97,7 +105,8 @@ spelling-ignore-comment-directives = "fmt: on,fmt: off,noqa:,noqa,nosec,isort:sk
 contextmanager-decorators = [ "contextlib.contextmanager",]
 ignore-none = true
 ignore-on-opaque-inference = true
-ignored-checks-for-mixins = [ "no-member", "not-async-context-manager", "not-context-manager", "attribute-defined-outside-init",]
+ignored-checks-for-mixins = [ "no-member", "not-async-context-manager", "not-context-manager", 
+    "attribute-defined-outside-init",]
 ignored-classes = [ "optparse.Values", "thread._local", "_thread._local", "argparse.Namespace",]
 missing-member-hint = true
 missing-member-hint-distance = 1
@@ -110,4 +119,3 @@ callbacks = [ "cb_", "_cb",]
 dummy-variables-rgx = "_+$|(_[a-zA-Z0-9_]*[a-zA-Z0-9]+?$)|dummy|^ignored_|^unused_"
 ignored-argument-names = "_.*|^ignored_|^unused_"
 redefining-builtins-modules = [ "six.moves", "past.builtins", "future.builtins", "builtins", "io",]
-
